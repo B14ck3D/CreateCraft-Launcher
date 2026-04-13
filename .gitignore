@@ -10,6 +10,8 @@ dist/
 .DS_Store
 .env
 .env.*
+# Klucz API modów (tylko lokalnie / na dysku użytkownika — nie commituj)
+launcher-mods-api-key
 Thumbs.db
 asar.txt
 app-asar-new.txt

@@ -512,7 +512,19 @@ function ModsListPanel() {
     setErr(null);
     try {
       const data = await window.electronAPI.createcraftsModsInfo();
-      setInfo(data);
+      if (data && data.ok === false) {
+        setErr(data.error || 'Błąd listy modów');
+        setInfo({
+          gameRoot: data.gameRoot,
+          modsDir: data.modsDir,
+          count: data.count ?? 0,
+          mods: data.mods ?? [],
+          baseUrl: data.baseUrl,
+        });
+      } else {
+        setErr(null);
+        setInfo(data);
+      }
     } catch (e) {
       setErr(String(e?.message || e));
       setInfo(null);
@@ -544,8 +556,11 @@ function ModsListPanel() {
           <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-brass-light">CreateCrafts</p>
           <h2 className="text-3xl font-black text-foreground">Mody z serwera</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Lista z indeksu createcrafts.pl — pliki trafiają do folderu{' '}
-            <code className="text-primary/90">mods</code> przy starcie gry.
+            Lista z API{' '}
+            <code className="text-primary/90">/api/launcher/mods/manifest</code> (klucz{' '}
+            <code className="text-primary/90">LAUNCHER_MODS_API_KEY</code> lub plik{' '}
+            <code className="text-primary/90">launcher-mods-api-key</code> w folderze danych aplikacji). Synchronizacja
+            przy starcie gry + weryfikacja SHA-256.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -625,7 +640,7 @@ function ModsListPanel() {
                   {m.status === 'ok' && <span className="text-xs font-semibold text-primary">OK</span>}
                   {m.status === 'missing' && <span className="text-xs font-semibold text-amber-500">Brak</span>}
                   {m.status === 'mismatch' && (
-                    <span className="text-xs font-semibold text-destructive">Inny rozmiar</span>
+                    <span className="text-xs font-semibold text-destructive">Inny plik</span>
                   )}
                   {m.status === 'unknown' && <span className="text-xs text-muted-foreground">?</span>}
                 </span>
@@ -633,7 +648,13 @@ function ModsListPanel() {
             ))}
           </ul>
           <div className="border-t border-glass-border bg-card/30 px-4 py-2 text-center text-[11px] text-muted-foreground">
-            {info.count} plików · źródło: createcrafts.pl/mods
+            {info.count} plików
+            {info.baseUrl ? (
+              <>
+                {' '}
+                · manifest: <span className="break-all">{info.baseUrl}</span>
+              </>
+            ) : null}
           </div>
         </div>
       )}

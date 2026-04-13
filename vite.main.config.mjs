@@ -23,6 +23,13 @@ export default defineConfig({
           join(__dirname, 'src', 'gamePackConstants.json'),
           join(outDir, 'gamePackConstants.json')
         );
+        for (const f of [
+          'launcherModsApiKey.js',
+          'launcherModsManifestSignature.js',
+          'launcherModsApiClient.js',
+        ]) {
+          copyFileSync(join(__dirname, 'src', f), join(outDir, f));
+        }
       },
     },
   ],

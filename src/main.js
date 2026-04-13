@@ -368,7 +368,21 @@ ipcMain.handle('createcrafts-mods-info', async () => {
     fs.mkdirSync(gameRoot, { recursive: true });
   } catch {
   }
-  return getCreateCraftsModsListForUi(gameRoot, () => {});
+  const userDataDir = app.getPath('userData');
+  try {
+    const data = await getCreateCraftsModsListForUi(gameRoot, () => {}, { userDataDir });
+    return { ok: true, ...data };
+  } catch (e) {
+    return {
+      ok: false,
+      error: String(e?.message || e),
+      gameRoot,
+      modsDir: path.join(gameRoot, 'mods'),
+      baseUrl: '',
+      count: 0,
+      mods: [],
+    };
+  }
 });
 
 ipcMain.handle('createcrafts-force-mod-resync-next', async () => {
@@ -628,6 +642,7 @@ ipcMain.on('start-game', async (event, authData) => {
             }
           },
           forceRedownload: forceModsResync,
+          userDataDir: app.getPath('userData'),
         });
         if (forceModsResync) {
           try {

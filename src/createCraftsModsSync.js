@@ -6,6 +6,13 @@ const tls = require('tls');
 const crypto = require('crypto');
 
 const pack = require(path.join(__dirname, 'gamePackConstants.json'));
+const { requireLauncherModsApiKey } = require('./launcherModsApiKey');
+const { verifyLauncherModsManifestSignature } = require('./launcherModsManifestSignature');
+const {
+  fetchLauncherModsManifestJson,
+  downloadLauncherModJar,
+  modsApiBaseUrl,
+} = require('./launcherModsApiClient');
 
 const CREATECRAFTS_SPKI_SHA256_B64 = ['mXC/m3zXpYXTKFA4fKCGeYq0jpeXjpxc0WNHYGvv5n8='];
 
@@ -65,31 +72,6 @@ function httpsRequestOnce(urlStr, { servername, checkServerIdentity }) {
   });
 }
 
-function httpsHeadOnce(urlStr, { servername, checkServerIdentity }) {
-  return new Promise((resolve, reject) => {
-    const u = new URL(urlStr);
-    if (u.protocol !== 'https:') return reject(new Error('Wymagany HTTPS'));
-    const opts = {
-      protocol: u.protocol,
-      hostname: u.hostname,
-      port: u.port || 443,
-      path: u.pathname + u.search,
-      method: 'HEAD',
-      headers: { 'User-Agent': 'createcrafts-launcher-modpack/1' },
-      rejectUnauthorized: true,
-      servername: servername || u.hostname,
-    };
-    if (checkServerIdentity) opts.checkServerIdentity = checkServerIdentity;
-    const req = https.request(opts, (res) => resolve(res));
-    req.on('error', reject);
-    req.setTimeout(30000, () => {
-      req.destroy();
-      reject(new Error('Timeout'));
-    });
-    req.end();
-  });
-}
-
 async function followHttpsCreateCrafts(url, maxRedirects = 12) {
   let current = url;
   for (let depth = 0; depth <= maxRedirects; depth++) {
@@ -138,11 +120,6 @@ async function followHttpsMavenNeoForge(url, maxRedirects = 12) {
   }
   throw new Error('Zbyt wiele przekierowań');
 }
-
-const MODS_INDEX_URLS = [
-  'https://createcrafts.pl/mods/',
-  'https://www.createcrafts.pl/mods/',
-];
 
 const NEOFORGE_INSTALLER_VERSION_DEFAULT = pack.neoForgeInstallerVersion;
 const MINECRAFT_VERSION_PACK = pack.minecraftVersion;
@@ -221,22 +198,6 @@ async function pruneOtherNeoForgeInstallers(gameRoot, keepVersion) {
   } catch {}
 }
 
-async function headContentLength(url) {
-  try {
-    const u = new URL(url);
-    if (!isCreateCraftsPlHost(u.hostname)) return null;
-    const res = await httpsHeadOnce(url, {
-      servername: u.hostname,
-      checkServerIdentity: (srv, cert) => pinCreateCraftsTls(srv, cert),
-    });
-    if (res.statusCode !== 200) return null;
-    const n = parseInt(res.headers['content-length'] || '0', 10);
-    return Number.isFinite(n) && n > 0 ? n : null;
-  } catch {
-    return null;
-  }
-}
-
 async function downloadToFile(url, destFile, onBytes) {
   await fs.promises.mkdir(path.dirname(destFile), { recursive: true });
   const tmp = `${destFile}.part`;
@@ -261,48 +222,34 @@ async function downloadToFile(url, destFile, onBytes) {
   await fs.promises.rename(tmp, destFile);
 }
 
-function parseJarLinks(html, baseUrl) {
-  const out = new Map();
-  const re = /href\s*=\s*["']([^"']+\.jar)["']/gi;
-  let m;
-  while ((m = re.exec(html))) {
-    let href = m[1].trim();
-    if (!href || href.includes('..')) continue;
-    if (href.startsWith('//')) href = `https:${href}`;
-    let full;
-    if (href.startsWith('http')) {
-      full = href;
-    } else {
-      full = new URL(href, baseUrl).href;
-    }
-    const ju = new URL(full);
-    if (!isCreateCraftsPlHost(ju.hostname)) continue;
-    const name = decodeURIComponent(path.basename(ju.pathname));
-    if (!name.endsWith('.jar') || name.startsWith('.')) continue;
-    out.set(name, full);
-  }
-  return out;
+async function sha256FileHex(filePath) {
+  const hash = crypto.createHash('sha256');
+  await new Promise((resolve, reject) => {
+    const rs = fs.createReadStream(filePath);
+    rs.on('data', (c) => hash.update(c));
+    rs.on('end', resolve);
+    rs.on('error', reject);
+  });
+  return hash.digest('hex');
 }
 
-async function fetchModsManifest(onLog) {
-  let lastErr;
-  for (const base of MODS_INDEX_URLS) {
-    const baseNorm = base.endsWith('/') ? base : `${base}/`;
-    try {
-      const res = await followHttpsCreateCrafts(baseNorm);
-      const chunks = [];
-      for await (const c of res) chunks.push(c);
-      const html = Buffer.concat(chunks).toString('utf8');
-      const map = parseJarLinks(html, baseNorm);
-      if (map.size === 0) throw new Error('Brak linków .jar w odpowiedzi');
-      if (onLog) onLog(`[mods] Indeks: ${baseNorm} (${map.size} plików)`);
-      return { baseUrl: baseNorm, files: map };
-    } catch (e) {
-      lastErr = e;
-      if (onLog) onLog(`[mods] Błąd ${baseNorm}: ${e.message}`);
-    }
+async function fetchAndVerifyModsManifest(apiKey, onLog) {
+  const manifest = await fetchLauncherModsManifestJson(apiKey);
+  const v = manifest.v;
+  if (v !== 1 && v !== '1') {
+    throw new Error(`Manifest modów: nieobsługiwane v=${v}`);
   }
-  throw lastErr || new Error('Nie udało się pobrać listy modów');
+  if (!verifyLauncherModsManifestSignature(manifest, apiKey)) {
+    throw new Error(
+      'Podpis HMAC manifestu modów jest nieprawidłowy — nie pobieram plików (możliwa manipulacja danymi lub niewłaściwy pierwszy klucz z listy).'
+    );
+  }
+  if (onLog) {
+    onLog(
+      `[mods] Manifest: ${modsApiBaseUrl()}/api/launcher/mods/manifest · generated=${manifest.generated} · count=${manifest.count}`
+    );
+  }
+  return manifest;
 }
 
 async function syncCreateCraftsMods(gameRoot, hooks = {}) {
@@ -310,18 +257,20 @@ async function syncCreateCraftsMods(gameRoot, hooks = {}) {
   const onProgress = hooks.onProgress || (() => {});
   const onPhase = hooks.onPhase || (() => {});
   const forceRedownload = Boolean(hooks.forceRedownload);
+  const userDataDir = hooks.userDataDir;
 
   onPhase('verify');
   onProgress(12);
-  const { files } = await fetchModsManifest(onLog);
+  const apiKey = requireLauncherModsApiKey({ userDataDir });
+  const manifest = await fetchAndVerifyModsManifest(apiKey, onLog);
   const modsDir = path.join(gameRoot, 'mods');
   await fs.promises.mkdir(modsDir, { recursive: true });
 
-  const list = [...files.entries()];
+  const list = Array.isArray(manifest.mods) ? manifest.mods : [];
   const total = list.length;
   if (total === 0) {
     onProgress(100);
-    onLog('[mods] Pusta lista z serwera.');
+    onLog('[mods] Pusta lista z manifestu.');
     return;
   }
 
@@ -331,21 +280,41 @@ async function syncCreateCraftsMods(gameRoot, hooks = {}) {
 
   onProgress(18);
   const tasks = [];
-  for (const [name, fileUrl] of list) {
-    const dest = path.join(modsDir, name);
-    const remoteLen = await headContentLength(fileUrl);
-    let needs = true;
-    if (!forceRedownload && fs.existsSync(dest) && remoteLen) {
-      const st = await fs.promises.stat(dest);
-      if (st.size === remoteLen) needs = false;
+  for (const m of list) {
+    const name = String(m.name || '');
+    const size = Number(m.size);
+    const sha256 = String(m.sha256 || '').toLowerCase();
+    if (
+      !name ||
+      !name.endsWith('.jar') ||
+      name.includes('..') ||
+      name.includes('/') ||
+      name.includes('\\') ||
+      /[<>:"|?*\x00-\x1f]/.test(name)
+    ) {
+      throw new Error(`[mods] Niedozwolona nazwa pliku w manifeście: ${name}`);
     }
-    tasks.push({ name, fileUrl, dest, needs, remoteLen });
+    if (!Number.isFinite(size) || size < 0 || !/^[0-9a-f]{64}$/.test(sha256)) {
+      throw new Error(`[mods] Nieprawidłowe meta dla: ${name}`);
+    }
+    const dest = path.join(modsDir, name);
+    let needs = true;
+    if (!forceRedownload && fs.existsSync(dest)) {
+      try {
+        const st = await fs.promises.stat(dest);
+        const h = await sha256FileHex(dest);
+        if (st.size === size && h === sha256) needs = false;
+      } catch {
+        needs = true;
+      }
+    }
+    tasks.push({ name, size, sha256, dest, needs });
   }
 
   const needDl = tasks.filter((t) => t.needs);
   if (needDl.length === 0) {
     onProgress(100);
-    onLog(`[mods] Weryfikacja: wszystkie ${total} plików OK (bez pobierania).`);
+    onLog(`[mods] Weryfikacja SHA-256: wszystkie ${total} plików OK (bez pobierania).`);
     return;
   }
 
@@ -355,9 +324,9 @@ async function syncCreateCraftsMods(gameRoot, hooks = {}) {
   let done = 0;
   const toFetch = needDl.length;
 
-  async function syncOne({ name, fileUrl, dest }) {
+  async function syncOne({ name, size, sha256, dest }) {
     onLog(`[mods] Pobieranie: ${name}`);
-    await downloadToFile(fileUrl, dest, () => {});
+    await downloadLauncherModJar(apiKey, name, dest, sha256, size, () => {});
   }
 
   for (let offset = 0; offset < needDl.length; offset += concurrency) {
@@ -367,6 +336,10 @@ async function syncCreateCraftsMods(gameRoot, hooks = {}) {
         try {
           await syncOne(t);
         } catch (e) {
+          try {
+            await fs.promises.unlink(t.dest).catch(() => {});
+          } catch {
+          }
           throw new Error(`Mod ${t.name}: ${e.message || e}`);
         }
       })
@@ -378,33 +351,39 @@ async function syncCreateCraftsMods(gameRoot, hooks = {}) {
   onLog(`[mods] Zakończono: ${total} plików w ${modsDir}`);
 }
 
-async function getCreateCraftsModsListForUi(gameRoot, onLog) {
+async function getCreateCraftsModsListForUi(gameRoot, onLog, opts = {}) {
   const log = onLog || (() => {});
-  const { files, baseUrl } = await fetchModsManifest(log);
+  const userDataDir = opts.userDataDir;
+  const apiKey = requireLauncherModsApiKey({ userDataDir });
+  const manifest = await fetchAndVerifyModsManifest(apiKey, log);
   const modsDir = path.join(gameRoot, 'mods');
   await fs.promises.mkdir(modsDir, { recursive: true });
+  const baseUrl = `${modsApiBaseUrl()}/api/launcher/mods/manifest`;
   const mods = [];
-  for (const [name, fileUrl] of files) {
+  const list = Array.isArray(manifest.mods) ? manifest.mods : [];
+  for (const m of list) {
+    const name = String(m.name || '');
+    const size = Number(m.size);
+    const sha256 = String(m.sha256 || '').toLowerCase();
     const dest = path.join(modsDir, name);
     let localSize = null;
     let status = 'unknown';
     try {
-      const remoteLen = await headContentLength(fileUrl);
-      if (fs.existsSync(dest)) {
+      if (!name.endsWith('.jar')) {
+        status = 'unknown';
+      } else if (fs.existsSync(dest)) {
         const st = await fs.promises.stat(dest);
         localSize = st.size;
-        if (remoteLen) {
-          status = st.size === remoteLen ? 'ok' : 'mismatch';
-        } else {
-          status = 'unknown';
-        }
+        const h = await sha256FileHex(dest);
+        if (st.size === size && h === sha256) status = 'ok';
+        else status = 'mismatch';
       } else {
         status = 'missing';
       }
     } catch {
       status = 'unknown';
     }
-    mods.push({ name, status, localSize, fileUrl });
+    mods.push({ name, status, localSize, expectedSize: size, sha256 });
   }
   return {
     gameRoot,
@@ -461,5 +440,4 @@ module.exports = {
   getCreateCraftsModsListForUi,
   NEOFORGE_INSTALLER_VERSION_DEFAULT,
   MINECRAFT_VERSION_PACK,
-  MODS_INDEX_URLS,
 };

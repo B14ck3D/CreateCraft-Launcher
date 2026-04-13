@@ -24,8 +24,32 @@ const child = require('child_process');
 const { spawnSync, execSync } = child;
 const { Auth, tokenUtils } = require('msmc');
 
+const { ensureDefaultServerInServersDatSync } = require('./serversDat');
 const MCLCInner = require('minecraft-launcher-core/components/launcher');
 MCLCInner.prototype.startMinecraft = function patchedStartMinecraft(launchArguments) {
+  const gameRootForServers = path.resolve(this.options.overrides?.cwd || this.options.root);
+  try {
+    const logPath = path.join(gameRootForServers, 'createcrafts-launcher.log');
+    const onLog = (line) => {
+      try {
+        fs.appendFileSync(
+          logPath,
+          `[${new Date().toISOString()}] ${String(line).replace(/\r?\n/g, ' ')}\n`
+        );
+      } catch {
+      }
+    };
+    ensureDefaultServerInServersDatSync(gameRootForServers, onLog);
+  } catch (e) {
+    try {
+      const logPath = path.join(gameRootForServers, 'createcrafts-launcher.log');
+      fs.appendFileSync(
+        logPath,
+        `[${new Date().toISOString()}] [servers.dat] przed spawnem MC: ${e}\n`
+      );
+    } catch {
+    }
+  }
   const minecraft = child.spawn(
     this.options.javaPath ? this.options.javaPath : 'java',
     launchArguments,
@@ -45,7 +69,6 @@ MCLCInner.prototype.startMinecraft = function patchedStartMinecraft(launchArgume
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const { JavaManager, JAVA_MAJOR, findBundledJavaExecutable } = require('./javaManager');
 const { ensureCreateCraftsModPack, getCreateCraftsModsListForUi } = require('./createCraftsModsSync');
-const { ensureDefaultServerInServersDat } = require('./serversDat');
 const { savePremiumMclc, loadPremiumMclc, deletePremiumMclc, migrateProfilesArray } = require('./profileStore');
 
 function normalizeUuidToHex32(uuid) {
@@ -531,16 +554,16 @@ ipcMain.on('start-game', async (event, authData) => {
     event.sender.send('launcher-log', m);
   });
 
-  launcher.once('package-extract', async () => {
+  launcher.once('package-extract', () => {
     try {
-      await ensureDefaultServerInServersDat(gameRoot, appendLaunchLog);
+      ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog);
     } catch (e) {
       appendLaunchLog(`[servers.dat] package-extract: ${e?.message || e}`);
     }
   });
-  launcher.once('arguments', async () => {
+  launcher.once('arguments', () => {
     try {
-      await ensureDefaultServerInServersDat(gameRoot, appendLaunchLog);
+      ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog);
     } catch (e) {
       appendLaunchLog(`[servers.dat] arguments: ${e?.message || e}`);
     }
@@ -724,7 +747,7 @@ ipcMain.on('start-game', async (event, authData) => {
       `Start gry ${MC_VERSION} (${useCreateCraftsModpack ? 'NeoForge + CreateCrafts mods' : 'vanilla'}) java=${javaPath} serwer=${serverHost}:${serverPort}`
     );
 
-    await ensureDefaultServerInServersDat(gameRoot, appendLaunchLog);
+    ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog);
 
     const opts = {
       clientPackage: null,

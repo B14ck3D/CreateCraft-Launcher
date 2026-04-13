@@ -1,0 +1,72 @@
+{
+  "name": "createcrafts-launcher",
+  "productName": "CreateCrafts Launcher",
+  "version": "1.0.1",
+  "description": "CreateCrafts Launcher — Electron, MCLC, Microsoft/offline, NeoForge.",
+  "main": ".vite/build/main.js",
+  "private": true,
+  "scripts": {
+    "prep:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-branding.ps1",
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "prepackage": "npm run prep:brand",
+    "make": "npm run package && electron-builder --win msi --x64 --prepackaged out/createcrafts-installer-win32-x64",
+    "make:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-signed.ps1",
+    "codesign:cert": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/New-CodeSigningCertificate.ps1",
+    "clean": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-build.ps1",
+    "clean:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -All",
+    "rebuild:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rebuild-all.ps1"
+  },
+  "keywords": [],
+  "author": {
+    "name": "Bl4ck3d",
+    "email": "igorturos09@gmail.com"
+  },
+  "license": "MIT",
+  "build": {
+    "appId": "pl.createcrafts.launcher",
+    "productName": "CreateCrafts Launcher",
+    "copyright": "Copyright © CreateCrafts",
+    "directories": {
+      "output": "out/createcrafts-installer",
+      "buildResources": "build"
+    },
+    "win": {
+      "target": ["msi"],
+      "icon": "build/icon.png",
+      "executableName": "CreateCrafts Launcher",
+      "artifactName": "createcrafts-installer.${ext}"
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CreateCrafts Launcher",
+      "runAfterFinish": true
+    }
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/plugin-fuses": "^7.11.1",
+    "@electron-forge/plugin-vite": "^7.11.1",
+    "@electron/fuses": "^1.8.0",
+    "@tailwindcss/postcss": "^4.2.2",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.4.27",
+    "electron": "41.2.0",
+    "electron-builder": "^26.8.1",
+    "postcss": "^8.5.9",
+    "tailwindcss": "^4.2.2",
+    "vite": "^5.4.21"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "framer-motion": "^11.18.2",
+    "lucide-react": "^1.8.0",
+    "minecraft-launcher-core": "^3.18.2",
+    "msmc": "^5.0.5",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  }
+}

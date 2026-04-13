@@ -1,0 +1,23 @@
+node_modules/
+out/
+build/
+# Certyfikat podpisu (generowany lokalnie — nie commituj)
+build/codesign.pfx
+build/codesign-password.txt
+.vite/
+dist/
+*.log
+.DS_Store
+.env
+.env.*
+Thumbs.db
+asar.txt
+app-asar-new.txt
+
+# Opcjonalny exe (często duży / licencja) — odkomentuj jeśli nie chcesz go w repo
+# launcher/*.exe
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json

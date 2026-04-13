@@ -1,28 +1,152 @@
-/**
- * CreateCrafts — synchronizacja modów z katalogu Apache (NeoForge 1.21.1)
- * + pobranie instalatora NeoForge pod MCLC (options.forge).
- */
-
+// Modpack sync (indeks createcrafts.pl + NeoForge Maven) + pinning TLS.
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const http = require('http');
+const tls = require('tls');
+const crypto = require('crypto');
 
 const pack = require(path.join(__dirname, 'gamePackConstants.json'));
+
+const CREATECRAFTS_SPKI_SHA256_B64 = ['mXC/m3zXpYXTKFA4fKCGeYq0jpeXjpxc0WNHYGvv5n8='];
+
+function isCreateCraftsPlHost(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  return h === 'createcrafts.pl' || h === 'www.createcrafts.pl';
+}
+
+function assertCreateCraftsHost(hostname) {
+  if (!isCreateCraftsPlHost(hostname)) {
+    throw new Error(`Niedozwolony host modów: ${hostname}`);
+  }
+}
+
+function pinCreateCraftsTls(servername, cert) {
+  const err = tls.checkServerIdentity(servername, cert);
+  if (err) return err;
+  const der = cert && cert.raw;
+  if (!der) return new Error('Brak certyfikatu serwera');
+  const pin = crypto.createHash('sha256').update(der).digest('base64');
+  if (!CREATECRAFTS_SPKI_SHA256_B64.includes(pin)) {
+    return new Error(`Pin TLS niezgodny (${servername})`);
+  }
+  return undefined;
+}
+
+const MAVEN_NEOFORGED_HOSTS = new Set(['maven.neoforged.net']);
+
+function assertMavenNeoForgeHost(hostname) {
+  if (!MAVEN_NEOFORGED_HOSTS.has(String(hostname || '').toLowerCase())) {
+    throw new Error(`Niedozwolony host Maven: ${hostname}`);
+  }
+}
+
+function httpsRequestOnce(urlStr, { servername, checkServerIdentity }) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlStr);
+    if (u.protocol !== 'https:') return reject(new Error('Wymagany HTTPS'));
+    const opts = {
+      protocol: u.protocol,
+      hostname: u.hostname,
+      port: u.port || 443,
+      path: u.pathname + u.search,
+      method: 'GET',
+      headers: { 'User-Agent': 'createcrafts-launcher-modpack/1' },
+      rejectUnauthorized: true,
+      servername: servername || u.hostname,
+    };
+    if (checkServerIdentity) opts.checkServerIdentity = checkServerIdentity;
+    const req = https.request(opts, (res) => resolve(res));
+    req.on('error', reject);
+    req.setTimeout(120000, () => {
+      req.destroy();
+      reject(new Error('Timeout'));
+    });
+    req.end();
+  });
+}
+
+function httpsHeadOnce(urlStr, { servername, checkServerIdentity }) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(urlStr);
+    if (u.protocol !== 'https:') return reject(new Error('Wymagany HTTPS'));
+    const opts = {
+      protocol: u.protocol,
+      hostname: u.hostname,
+      port: u.port || 443,
+      path: u.pathname + u.search,
+      method: 'HEAD',
+      headers: { 'User-Agent': 'createcrafts-launcher-modpack/1' },
+      rejectUnauthorized: true,
+      servername: servername || u.hostname,
+    };
+    if (checkServerIdentity) opts.checkServerIdentity = checkServerIdentity;
+    const req = https.request(opts, (res) => resolve(res));
+    req.on('error', reject);
+    req.setTimeout(30000, () => {
+      req.destroy();
+      reject(new Error('Timeout'));
+    });
+    req.end();
+  });
+}
+
+async function followHttpsCreateCrafts(url, maxRedirects = 12) {
+  let current = url;
+  for (let depth = 0; depth <= maxRedirects; depth++) {
+    const u = new URL(current);
+    if (u.protocol !== 'https:') throw new Error('Tylko HTTPS');
+    assertCreateCraftsHost(u.hostname);
+    const res = await httpsRequestOnce(current, {
+      servername: u.hostname,
+      checkServerIdentity: (srv, cert) => pinCreateCraftsTls(srv, cert),
+    });
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      current = new URL(res.headers.location, current).href;
+      res.resume();
+      continue;
+    }
+    if (res.statusCode !== 200) {
+      res.resume();
+      throw new Error(`HTTP ${res.statusCode}`);
+    }
+    return res;
+  }
+  throw new Error('Zbyt wiele przekierowań');
+}
+
+async function followHttpsMavenNeoForge(url, maxRedirects = 12) {
+  let current = url;
+  for (let depth = 0; depth <= maxRedirects; depth++) {
+    const u = new URL(current);
+    if (u.protocol !== 'https:') throw new Error('Tylko HTTPS');
+    assertMavenNeoForgeHost(u.hostname);
+    const res = await httpsRequestOnce(current, { servername: u.hostname });
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      const next = new URL(res.headers.location, current).href;
+      const nu = new URL(next);
+      if (nu.protocol !== 'https:') throw new Error('Redirect na niedozwolony protokół');
+      assertMavenNeoForgeHost(nu.hostname);
+      current = next;
+      res.resume();
+      continue;
+    }
+    if (res.statusCode !== 200) {
+      res.resume();
+      throw new Error(`HTTP ${res.statusCode}`);
+    }
+    return res;
+  }
+  throw new Error('Zbyt wiele przekierowań');
+}
 
 const MODS_INDEX_URLS = [
   'https://createcrafts.pl/mods/',
   'https://www.createcrafts.pl/mods/',
 ];
 
-/**
- * NeoForge — wersja z `gamePackConstants.json` (Maven …/neoforge/{version}/).
- * Nadpisanie: CREATECRAFT_NEOFORGE_VERSION (lub SUPERSMP_NEOFORGE_VERSION).
- */
 const NEOFORGE_INSTALLER_VERSION_DEFAULT = pack.neoForgeInstallerVersion;
 const MINECRAFT_VERSION_PACK = pack.minecraftVersion;
 
-/** MCLC zapisuje scalony JSON Forge/NeoForge w forge/{mcVersion}/ — przy zmianie instalatora trzeba czyścić, inaczej zostaje stary (np. 218). */
 function clearMclcForgedVersionCache(gameRoot, onLog) {
   const p = path.join(gameRoot, 'forge', MINECRAFT_VERSION_PACK);
   try {
@@ -45,9 +169,7 @@ function cacheDir(gameRoot) {
     if (!fs.existsSync(next) && fs.existsSync(legacy)) {
       fs.renameSync(legacy, next);
     }
-  } catch {
-    /* ignore */
-  }
+  } catch {}
   return next;
 }
 
@@ -69,9 +191,7 @@ function writeNeoForgeReadyMarker(gameRoot, version) {
   try {
     fs.mkdirSync(cacheDir(gameRoot), { recursive: true });
     fs.writeFileSync(neoForgeReadyMarkerPath(gameRoot), String(version), 'utf8');
-  } catch {
-    /* ignore */
-  }
+  } catch {}
 }
 
 function neoForgeInstallerPath(gameRoot, version) {
@@ -98,77 +218,37 @@ async function pruneOtherNeoForgeInstallers(gameRoot, keepVersion) {
       if (e.name === keepName) continue;
       await fs.promises.unlink(path.join(dir, e.name)).catch(() => {});
     }
-  } catch {
-    /* ignore */
-  }
+  } catch {}
 }
 
-function followRedirectFetch(url, maxRedirects = 12) {
-  return new Promise((resolve, reject) => {
-    if (maxRedirects < 0) {
-      reject(new Error('Zbyt wiele przekierowań'));
-      return;
-    }
-    const lib = url.startsWith('https:') ? https : http;
-    const req = lib.get(
-      url,
-      { headers: { 'User-Agent': 'createcrafts-launcher-modpack/1' } },
-      (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          const next = new URL(res.headers.location, url).href;
-          res.resume();
-          resolve(followRedirectFetch(next, maxRedirects - 1));
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new Error(`HTTP ${res.statusCode}`));
-          return;
-        }
-        resolve(res);
-      }
-    );
-    req.on('error', reject);
-    req.setTimeout(120000, () => {
-      req.destroy();
-      reject(new Error('Timeout'));
-    });
-  });
-}
-
-function headContentLength(url) {
-  return new Promise((resolve) => {
-    const lib = url.startsWith('https:') ? https : http;
+async function headContentLength(url) {
+  try {
     const u = new URL(url);
-    const req = lib.request(
-      {
-        protocol: u.protocol,
-        hostname: u.hostname,
-        port: u.port || undefined,
-        path: u.pathname + u.search,
-        method: 'HEAD',
-        headers: { 'User-Agent': 'createcrafts-launcher-modpack/1' },
-        timeout: 30000,
-      },
-      (res) => {
-        res.resume();
-        const n = parseInt(res.headers['content-length'] || '0', 10);
-        resolve(Number.isFinite(n) && n > 0 ? n : null);
-      }
-    );
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => {
-      req.destroy();
-      resolve(null);
+    if (!isCreateCraftsPlHost(u.hostname)) return null;
+    const res = await httpsHeadOnce(url, {
+      servername: u.hostname,
+      checkServerIdentity: (srv, cert) => pinCreateCraftsTls(srv, cert),
     });
-    req.end();
-  });
+    if (res.statusCode !== 200) return null;
+    const n = parseInt(res.headers['content-length'] || '0', 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
 }
 
 async function downloadToFile(url, destFile, onBytes) {
   await fs.promises.mkdir(path.dirname(destFile), { recursive: true });
   const tmp = `${destFile}.part`;
-  const res = await followRedirectFetch(url);
+  const u = new URL(url);
+  let res;
+  if (isCreateCraftsPlHost(u.hostname)) {
+    res = await followHttpsCreateCrafts(url);
+  } else if (MAVEN_NEOFORGED_HOSTS.has(u.hostname)) {
+    res = await followHttpsMavenNeoForge(url);
+  } else {
+    throw new Error(`Niedozwolony host pobierania: ${u.hostname}`);
+  }
   const total = parseInt(res.headers['content-length'] || '0', 10);
   let received = 0;
   const chunks = [];
@@ -181,11 +261,6 @@ async function downloadToFile(url, destFile, onBytes) {
   await fs.promises.rename(tmp, destFile);
 }
 
-/**
- * Wyciąga nazwy plików .jar z listingu Apache (href="…jar") lub zwykłego HTML.
- * @param {string} html
- * @param {string} baseUrl — z końcowym /
- */
 function parseJarLinks(html, baseUrl) {
   const out = new Map();
   const re = /href\s*=\s*["']([^"']+\.jar)["']/gi;
@@ -200,7 +275,9 @@ function parseJarLinks(html, baseUrl) {
     } else {
       full = new URL(href, baseUrl).href;
     }
-    const name = decodeURIComponent(path.basename(new URL(full).pathname));
+    const ju = new URL(full);
+    if (!isCreateCraftsPlHost(ju.hostname)) continue;
+    const name = decodeURIComponent(path.basename(ju.pathname));
     if (!name.endsWith('.jar') || name.startsWith('.')) continue;
     out.set(name, full);
   }
@@ -212,7 +289,7 @@ async function fetchModsManifest(onLog) {
   for (const base of MODS_INDEX_URLS) {
     const baseNorm = base.endsWith('/') ? base : `${base}/`;
     try {
-      const res = await followRedirectFetch(baseNorm);
+      const res = await followHttpsCreateCrafts(baseNorm);
       const chunks = [];
       for await (const c of res) chunks.push(c);
       const html = Buffer.concat(chunks).toString('utf8');
@@ -228,10 +305,6 @@ async function fetchModsManifest(onLog) {
   throw lastErr || new Error('Nie udało się pobrać listy modów');
 }
 
-/**
- * @param {string} gameRoot
- * @param {{ onLog?: (s:string)=>void, onProgress?: (pct:number)=>void, onPhase?: (phase: 'verify'|'download')=>void }} hooks
- */
 async function syncCreateCraftsMods(gameRoot, hooks = {}) {
   const onLog = hooks.onLog || (() => {});
   const onProgress = hooks.onProgress || (() => {});
@@ -305,11 +378,6 @@ async function syncCreateCraftsMods(gameRoot, hooks = {}) {
   onLog(`[mods] Zakończono: ${total} plików w ${modsDir}`);
 }
 
-/**
- * Lista modów z serwera + status lokalny (UI).
- * @param {string} gameRoot
- * @param {(s:string)=>void} [onLog]
- */
 async function getCreateCraftsModsListForUi(gameRoot, onLog) {
   const log = onLog || (() => {});
   const { files, baseUrl } = await fetchModsManifest(log);
@@ -319,7 +387,6 @@ async function getCreateCraftsModsListForUi(gameRoot, onLog) {
   for (const [name, fileUrl] of files) {
     const dest = path.join(modsDir, name);
     let localSize = null;
-    /** @type {'ok'|'missing'|'mismatch'|'unknown'} */
     let status = 'unknown';
     try {
       const remoteLen = await headContentLength(fileUrl);
@@ -348,9 +415,6 @@ async function getCreateCraftsModsListForUi(gameRoot, onLog) {
   };
 }
 
-/**
- * Pobiera instalator NeoForge (JAR) do cache pod MCLC `options.forge`.
- */
 async function ensureNeoForgeInstallerJar(gameRoot, onLog) {
   const version = resolveNeoForgeInstallerVersion(onLog);
   const dest = neoForgeInstallerPath(gameRoot, version);
@@ -371,11 +435,6 @@ async function ensureNeoForgeInstallerJar(gameRoot, onLog) {
   return dest;
 }
 
-/**
- * Mody + instalator NeoForge (jedna funkcja z main).
- * Cache MCLC `forge/<mc>/` czyścimy tylko gdy zmieni się wersja instalatora NeoForge.
- * @returns {Promise<{ neoForgeInstallerPath: string }>}
- */
 async function ensureCreateCraftsModPack(gameRoot, hooks = {}) {
   const onLog = hooks.onLog || (() => {});
   const version = resolveNeoForgeInstallerVersion(onLog);

@@ -1,15 +1,7 @@
-/**
- * Java Manager — lokalne JRE (Eclipse Temurin) z Adoptium API.
- * Oddzielone od GUI; postęp: onProgress(0–100).
- *
- * Adoptium (przykład Windows x64):
- * https://api.adoptium.net/v3/binary/latest/21/ga/windows/x64/jdk/hotspot/normal/eclipse
- */
-
+// Temurin JDK z Adoptium (HTTPS + allowlista hostów).
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const http = require('http');
 const { spawnSync } = require('child_process');
 const { pipeline } = require('stream/promises');
 const AdmZip = require('adm-zip');
@@ -51,10 +43,6 @@ function writeMarker(runtimeBase, jdkHome) {
   fs.writeFileSync(path.join(runtimeBase, '.jdk-home'), path.resolve(jdkHome), 'utf8');
 }
 
-/**
- * Czy w runtimeBase jest już java (layout: runtimeBase/jdk/bin/java[.exe]).
- * @returns {string|null} absolutna ścieżka do pliku wykonywalnego
- */
 function findBundledJavaExecutable(runtimeBase) {
   const fixed = path.join(runtimeBase, 'jdk', 'bin', javaExeName());
   if (fs.existsSync(fixed)) return path.resolve(fixed);
@@ -66,9 +54,6 @@ function findBundledJavaExecutable(runtimeBase) {
   return null;
 }
 
-/**
- * Po rozpakowaniu: Windows/Linux — jdk-21…/bin/java; macOS — …/Contents/Home/bin/java
- */
 function findJdkRootInExtractDir(extractDir) {
   const entries = fs.readdirSync(extractDir, { withFileTypes: true });
   for (const ent of entries) {
@@ -104,14 +89,30 @@ function extractArchive(archivePath, extractDir) {
   }
 }
 
+function isAdoptiumDownloadHost(hostname) {
+  const h = String(hostname || '').toLowerCase();
+  if (h === 'api.adoptium.net') return true;
+  if (h === 'github.com' || h === 'www.github.com') return true;
+  if (h.endsWith('.githubusercontent.com')) return true;
+  return false;
+}
+
 function followRedirectGet(url, maxRedirects = 12) {
   return new Promise((resolve, reject) => {
     if (maxRedirects < 0) {
       reject(new Error('Zbyt wiele przekierowań HTTP'));
       return;
     }
-    const lib = url.startsWith('https:') ? https : http;
-    const req = lib.get(
+    if (!url.startsWith('https:')) {
+      reject(new Error('Wymagany HTTPS'));
+      return;
+    }
+    const u = new URL(url);
+    if (!isAdoptiumDownloadHost(u.hostname)) {
+      reject(new Error(`Niedozwolony host JDK: ${u.hostname}`));
+      return;
+    }
+    const req = https.get(
       url,
       { headers: { 'User-Agent': 'createcrafts-launcher-java-manager/1' } },
       (res) => {
@@ -137,11 +138,6 @@ function followRedirectGet(url, maxRedirects = 12) {
   });
 }
 
-/**
- * @param {string} url
- * @param {string} destFile
- * @param {(pct: number) => void} [onProgress] 0–85 podczas pobierania
- */
 async function downloadToFile(url, destFile, onProgress) {
   await fs.promises.mkdir(path.dirname(destFile), { recursive: true });
   const tmp = `${destFile}.part`;
@@ -164,17 +160,11 @@ async function downloadToFile(url, destFile, onProgress) {
 }
 
 class JavaManager {
-  /**
-   * @param {{ getRuntimeBaseDir: () => string, onProgress?: (n: number) => void }} opts
-   */
   constructor(opts) {
     this.getRuntimeBaseDir = opts.getRuntimeBaseDir;
     this.onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
   }
 
-  /**
-   * Zwraca absolutną ścieżkę do java.exe (Windows) / java (Unix).
-   */
   async ensureJava21() {
     const runtimeBase = path.resolve(this.getRuntimeBaseDir());
     await fs.promises.mkdir(runtimeBase, { recursive: true });

@@ -6,20 +6,14 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 module.exports = {
   packagerConfig: {
     asar: true,
-    /** Krótka nazwa folderu w `out/` — musi być zgodna z `npm run make` / electron-builder --prepackaged. */
     name: 'createcrafts-installer',
-    /**
-     * Musi być zgodne z productName / MSI — katalog paczki musi zawierać właściwy plik .exe aplikacji.
-     */
     executableName: 'CreateCrafts Launcher',
-    /** Ikona okna w paczce: `main.js` ładuje `process.resourcesPath/icon.png`. */
     extraResource: (() => {
       const icon = path.join(__dirname, 'public', 'icon.png');
       return fs.existsSync(icon) ? [icon] : [];
     })(),
   },
   rebuildConfig: {},
-  /** Instalator Windows: `npm run make` → electron-builder MSI (nie używamy `electron-forge make`). */
   makers: [],
   plugins: [
     {

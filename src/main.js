@@ -1,3 +1,4 @@
+// Electron main — okno, IPC, MCLC.
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -5,7 +6,6 @@ if (!gotTheLock) {
   process.exit(0);
 }
 
-/** @type {import('electron').BrowserWindow | null} */
 let mainWindow = null;
 
 app.on('second-instance', () => {
@@ -18,12 +18,12 @@ app.on('second-instance', () => {
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const os = require('os');
 const child = require('child_process');
 const { spawnSync, execSync } = child;
 const { Auth, tokenUtils } = require('msmc');
 
-// Vanilla MCLC odpala `java` z detached + domyślne stdio — na Windows często miga osobne okno CMD. Naprawa bez patchowania node_modules w paczce.
 const MCLCInner = require('minecraft-launcher-core/components/launcher');
 MCLCInner.prototype.startMinecraft = function patchedStartMinecraft(launchArguments) {
   const minecraft = child.spawn(
@@ -45,6 +45,30 @@ MCLCInner.prototype.startMinecraft = function patchedStartMinecraft(launchArgume
 const { Client, Authenticator } = require('minecraft-launcher-core');
 const { JavaManager, JAVA_MAJOR, findBundledJavaExecutable } = require('./javaManager');
 const { ensureCreateCraftsModPack, getCreateCraftsModsListForUi } = require('./createCraftsModsSync');
+const { ensureDefaultServerInServersDat } = require('./serversDat');
+const { savePremiumMclc, loadPremiumMclc, deletePremiumMclc, migrateProfilesArray } = require('./profileStore');
+
+function normalizeUuidToHex32(uuid) {
+  const s = String(uuid || '')
+    .replace(/-/g, '')
+    .toLowerCase();
+  if (s.length !== 32 || !/^[0-9a-f]{32}$/.test(s)) return null;
+  return s;
+}
+
+function mineatarFaceUrlFromUuidHex32(hex32) {
+  return `https://api.mineatar.io/face/${hex32}?scale=4`;
+}
+
+function offlinePlayerUuidFromName(playerName) {
+  const s = `OfflinePlayer:${String(playerName)}`;
+  const md5 = crypto.createHash('md5').update(s, 'utf8').digest();
+  const b = Buffer.from(md5);
+  b[6] = (b[6] & 0x0f) | 0x30;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = b.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
 
 function getDefaultGameRoot() {
   const appData = app.getPath('appData');
@@ -60,15 +84,11 @@ function getDefaultGameRoot() {
   return next;
 }
 
-/** Flaga pliku: przy następnym `start-game` wymuś ponowne pobranie modów z indeksu. */
 const FORCE_MODS_RESYNC_FLAG = 'createcrafts-force-mods-resync.flag';
 function getForceModsResyncFlagPath() {
   return path.join(getDefaultGameRoot(), FORCE_MODS_RESYNC_FLAG);
 }
 
-/**
- * JVM / --server (spoof OS, katalog gry, serwer) — w main, żeby Vite pakował do app.asar.
- */
 function windowsJvmOsSpoofFlags() {
   if (process.platform !== 'win32') return [];
   const ver = String(os.release() || '');
@@ -87,7 +107,6 @@ function serverConnectProgramArgs(serverHost, serverPort) {
   }
   return ['--server', host];
 }
-/** JVM: G1 + wątki GC dopasowane do liczby rdzeni (mniej mikro-lagów niż domyślne). */
 function jvmPerformanceArgs() {
   const cpus = Math.max(2, os.cpus().length);
   return [
@@ -115,10 +134,6 @@ function buildMclcJvmAugments({ gameRoot, serverHost, serverPort, modBranding })
   return { customArgs, customLaunchArgs };
 }
 
-/**
- * Odświeża wygasły token Xbox/Minecraft (invalid session) i zwraca świeży obiekt pod MCLC.
- * Wymaga zapisu z logowania `mclc(true)` (meta.refresh).
- */
 async function ensurePremiumAuthForMclc(storedMclc) {
   if (!storedMclc || typeof storedMclc.access_token !== 'string') {
     throw new Error('Brak tokena premium — zaloguj się przez Microsoft.');
@@ -146,7 +161,6 @@ async function ensurePremiumAuthForMclc(storedMclc) {
 const MC_VERSION = '1.21.1';
 const MIN_JAVA_MAJOR = 21;
 
-/** Katalog lokalny JRE (Temurin) — bez instalacji systemowej (`userData` = folder aplikacji Electron). */
 function getBundledJavaRuntimeRoot() {
   return path.join(app.getPath('userData'), 'runtime', `java${JAVA_MAJOR}`);
 }
@@ -181,7 +195,6 @@ function collectJavaCandidates() {
     try {
       if (fs.existsSync(p)) out.add(path.resolve(p));
     } catch {
-      /* ignore */
     }
   };
 
@@ -226,14 +239,12 @@ function collectJavaCandidates() {
           .filter(Boolean)
           .forEach(push);
       } catch {
-        /* ignore */
       }
     }
   } else {
     try {
       push(execSync('command -v java', { encoding: 'utf8' }).trim());
     } catch {
-      /* ignore */
     }
   }
 
@@ -262,7 +273,6 @@ function resolveJavaPath() {
   return { javaPath: best || (process.platform === 'win32' ? 'javaw' : 'java'), major: Math.max(0, bestMajor) };
 }
 
-/** Ikona okna: dev — `public/icon.png`; paczka — `resources/icon.png` (forge `extraResource`). */
 function getWindowIconPath() {
   try {
     if (app.isPackaged) {
@@ -291,14 +301,12 @@ const createWindow = () => {
     },
   });
 
-  /** Dev server (Vite) — zostaw nawigację w oknie; reszta http(s) → domyślna przeglądarka. */
   let devOrigin = '';
   try {
     const devUrl =
       typeof MAIN_WINDOW_VITE_DEV_SERVER_URL === 'string' ? MAIN_WINDOW_VITE_DEV_SERVER_URL : '';
     if (devUrl) devOrigin = new URL(devUrl).origin;
   } catch {
-    /* ignore */
   }
 
   const wc = mainWindow.webContents;
@@ -313,7 +321,6 @@ const createWindow = () => {
       }
       shell.openExternal(url);
     } catch {
-      /* ignore */
     }
     return { action: 'deny' };
   });
@@ -330,7 +337,6 @@ const createWindow = () => {
       event.preventDefault();
       shell.openExternal(navigationUrl);
     } catch {
-      /* ignore */
     }
   });
 
@@ -361,7 +367,6 @@ ipcMain.handle('createcrafts-mods-info', async () => {
   try {
     fs.mkdirSync(gameRoot, { recursive: true });
   } catch {
-    /* ignore */
   }
   return getCreateCraftsModsListForUi(gameRoot, () => {});
 });
@@ -391,7 +396,6 @@ ipcMain.handle('open-path-in-explorer', async (_e, dirPath) => {
   try {
     await fs.promises.mkdir(p, { recursive: true });
   } catch {
-    /* ignore */
   }
   const err = await shell.openPath(p);
   return err ? { ok: false, error: err } : { ok: true };
@@ -410,18 +414,72 @@ ipcMain.handle('open-external-url', async (_e, url) => {
   }
 });
 
+ipcMain.handle('profiles-migrate-localstorage', async (_e, payload) => {
+  try {
+    const rawJson = typeof payload === 'string' ? payload : payload?.rawJson;
+    const lastProfileId = typeof payload === 'object' && payload ? payload.lastProfileId : null;
+    const arr = JSON.parse(String(rawJson || '[]'));
+    if (!Array.isArray(arr)) return { ok: false, error: 'profiles musi być tablicą' };
+    const { profiles, changed, newLastProfileId } = migrateProfilesArray(arr, lastProfileId);
+    return {
+      ok: true,
+      profilesJson: JSON.stringify(profiles),
+      changed,
+      newLastProfileId: newLastProfileId || null,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+ipcMain.handle('profiles-delete-premium', async (_e, profileId) => {
+  try {
+    deletePremiumMclc(String(profileId || ''));
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
+ipcMain.handle('mineatar-face-url', async (_e, payload) => {
+  const rawUuid = String(payload?.uuid || '').trim();
+  const offlineName = String(payload?.offlineName || '').trim();
+  let canonical = null;
+  if (rawUuid) {
+    const hex = normalizeUuidToHex32(rawUuid);
+    if (hex) canonical = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  } else if (offlineName) {
+    canonical = offlinePlayerUuidFromName(offlineName);
+  }
+  if (!canonical) return { url: null, playerUuid: null };
+  const hex32 = normalizeUuidToHex32(canonical);
+  if (!hex32) return { url: null, playerUuid: null };
+  return {
+    url: mineatarFaceUrlFromUuidHex32(hex32),
+    playerUuid: canonical,
+  };
+});
+
 ipcMain.handle('login-microsoft', async () => {
   try {
     const authManager = new Auth("select_account");
     const xboxManager = await authManager.launch("electron");
     const token = await xboxManager.getMinecraft();
     const mcToken = token.mclc(true);
+    if (!mcToken.uuid) {
+      throw new Error('Brak UUID profilu Minecraft — zaloguj się ponownie.');
+    }
+    savePremiumMclc(mcToken.uuid, mcToken);
+
+    const hex32 = normalizeUuidToHex32(mcToken.uuid);
+    const avatar = hex32 ? mineatarFaceUrlFromUuidHex32(hex32) : '';
 
     return {
+      id: mcToken.uuid,
       name: mcToken.name,
       type: "premium",
-      avatar: `https://api.mineatar.io/face/${mcToken.name}?scale=4`,
-      token: mcToken,
+      label: mcToken.name,
+      avatar,
     };
   } catch (error) {
     console.error("Błąd logowania Microsoft:", error);
@@ -434,14 +492,12 @@ ipcMain.on('start-game', async (event, authData) => {
   try {
     fs.mkdirSync(gameRoot, { recursive: true });
   } catch {
-    /* ignore */
   }
   const launchLogPath = path.join(gameRoot, 'createcrafts-launcher.log');
   const appendLaunchLog = (msg) => {
     try {
       fs.appendFileSync(launchLogPath, `[${new Date().toISOString()}] ${String(msg).replace(/\r?\n/g, ' ')}\n`);
     } catch {
-      /* ignore */
     }
   };
 
@@ -461,18 +517,40 @@ ipcMain.on('start-game', async (event, authData) => {
     event.sender.send('launcher-log', m);
   });
 
+  launcher.once('package-extract', async () => {
+    try {
+      await ensureDefaultServerInServersDat(gameRoot, appendLaunchLog);
+    } catch (e) {
+      appendLaunchLog(`[servers.dat] package-extract: ${e?.message || e}`);
+    }
+  });
+  launcher.once('arguments', async () => {
+    try {
+      await ensureDefaultServerInServersDat(gameRoot, appendLaunchLog);
+    } catch (e) {
+      appendLaunchLog(`[servers.dat] arguments: ${e?.message || e}`);
+    }
+  });
+
   try {
     event.sender.send('launcher-state', 'verifying');
 
+    const launchPayload = authData || {};
     let authorization;
-    if (authData.type === 'offline') {
-      authorization = Authenticator.getAuth(authData.name);
-    } else if (authData.type === 'premium') {
+    if (launchPayload.type === 'offline') {
+      const nick = String(launchPayload.offlineName || launchPayload.name || '').trim();
+      if (!nick) throw new Error('Brak nicku offline');
+      authorization = Authenticator.getAuth(nick);
+    } else if (launchPayload.type === 'premium') {
+      const sid = String(launchPayload.profileId || '').trim();
+      if (!sid) throw new Error('Brak profileId — zaloguj się ponownie przez Microsoft.');
+      const stored = loadPremiumMclc(sid);
+      if (!stored) {
+        throw new Error('Brak zapisanej sesji premium — zaloguj się ponownie przez Microsoft.');
+      }
       try {
-        authorization = await ensurePremiumAuthForMclc(authData.token);
-        if (authData.id) {
-          event.sender.send('profile-token-refreshed', { id: authData.id, token: authorization });
-        }
+        authorization = await ensurePremiumAuthForMclc(stored);
+        savePremiumMclc(authorization.uuid || sid, authorization);
       } catch (e) {
         appendLaunchLog(`Premium auth: ${e}`);
         throw e;
@@ -555,7 +633,6 @@ ipcMain.on('start-game', async (event, authData) => {
           try {
             fs.unlinkSync(getForceModsResyncFlagPath());
           } catch {
-            /* ignore */
           }
         }
         neoForgeInstallerPath = pack.neoForgeInstallerPath;
@@ -632,6 +709,8 @@ ipcMain.on('start-game', async (event, authData) => {
       `Start gry ${MC_VERSION} (${useCreateCraftsModpack ? 'NeoForge + CreateCrafts mods' : 'vanilla'}) java=${javaPath} serwer=${serverHost}:${serverPort}`
     );
 
+    await ensureDefaultServerInServersDat(gameRoot, appendLaunchLog);
+
     const opts = {
       clientPackage: null,
       authorization,
@@ -643,14 +722,15 @@ ipcMain.on('start-game', async (event, authData) => {
         type: "release"
       },
       memory: {
-        max: authData.ramSize || '6G',
+        max: launchPayload.ramSize || '6G',
         min: '1G',
       },
       customArgs: tlAugment.customArgs,
       customLaunchArgs: tlAugment.customLaunchArgs,
       overrides: {
-        detached: false
-      }
+        detached: false,
+        cwd: path.resolve(gameRoot),
+      },
     };
 
     const childProc = await launcher.launch(opts);

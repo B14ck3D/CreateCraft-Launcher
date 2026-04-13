@@ -2,7 +2,6 @@ import { motion } from 'framer-motion';
 import { Play, CheckCircle2, Loader2 } from 'lucide-react';
 import CogwheelFrame from './CogwheelFrame';
 
-/** Plik z `public/` — Vite serwuje jako `/…` */
 const HERO_BG = `${import.meta.env.BASE_URL}hero-bg-ObJtS6DH.jpg`;
 
 export default function LauncherMainPanel({ user, connectionState, progress, statusText, onPlay }) {

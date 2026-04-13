@@ -5,9 +5,6 @@ import { defineConfig } from 'vite';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// https://vitejs.dev/config
-// Rollup (main CJS) zostawia `require("./javaManager")`, ale nie emituje chunku — w app.asar brak pliku.
-// Po bundlu kopiujemy moduł obok `main.js`, żeby require działał w paczce.
 export default defineConfig({
   plugins: [
     {
@@ -20,6 +17,8 @@ export default defineConfig({
         copyFileSync(src, dest);
         const modsSrc = join(__dirname, 'src', 'createCraftsModsSync.js');
         copyFileSync(modsSrc, join(outDir, 'createCraftsModsSync.js'));
+        copyFileSync(join(__dirname, 'src', 'serversDat.js'), join(outDir, 'serversDat.js'));
+        copyFileSync(join(__dirname, 'src', 'profileStore.js'), join(outDir, 'profileStore.js'));
         copyFileSync(
           join(__dirname, 'src', 'gamePackConstants.json'),
           join(outDir, 'gamePackConstants.json')

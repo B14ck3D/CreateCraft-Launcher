@@ -18,7 +18,6 @@ async function openInBrowser(url, e) {
     }
     return;
   }
-  // Poza Electronem (np. podgląd w przeglądarce) — w Electron NIE używaj window.open (otwiera drugie okno aplikacji).
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 

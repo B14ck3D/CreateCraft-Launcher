@@ -14,7 +14,6 @@ import {
   Cpu,
   RefreshCw,
   FolderOpen,
-  Settings,
   Sparkles,
 } from 'lucide-react';
 import gamePack from './gamePackConstants.json';
@@ -22,14 +21,43 @@ import SteampunkNavbar from './components/forge/SteampunkNavbar.jsx';
 import SteampunkFooter from './components/forge/SteampunkFooter.jsx';
 import LauncherMainPanel from './components/forge/LauncherMainPanel.jsx';
 import GearDecoration from './components/forge/GearDecoration.jsx';
+import CogwheelFrame from './components/forge/CogwheelFrame.jsx';
 
-/** Ścieżki do plików z `public/` — pod Electron `file://` musi być względna (Vite `base: './'`). */
+// React root — assety z `public/` (Vite base).
 const pub = (file) => `${import.meta.env.BASE_URL}${file}`;
 
 const PROFILES_STORAGE_KEY = 'createcraft_profiles_v1';
 const LAST_PROFILE_STORAGE_KEY = 'createcraft_last_profile_id';
 const PROFILES_LEGACY_KEY = 'supersmp_profiles_v1';
 const LAST_PROFILE_LEGACY_KEY = 'supersmp_last_profile_id';
+const LAUNCHER_SETTINGS_KEY = 'createcraft_launcher_settings_v1';
+
+function clampRamGb(n) {
+  const x = typeof n === 'number' ? n : parseInt(String(n), 10);
+  if (!Number.isFinite(x)) return 6;
+  return Math.min(32, Math.max(2, Math.round(x)));
+}
+
+function loadLauncherSettings() {
+  try {
+    const raw = localStorage.getItem(LAUNCHER_SETTINGS_KEY);
+    if (!raw) return { ramGb: 6 };
+    const o = JSON.parse(raw);
+    return { ramGb: clampRamGb(o.ramGb ?? 6) };
+  } catch {
+    return { ramGb: 6 };
+  }
+}
+
+function saveLauncherSettings(partial) {
+  const cur = loadLauncherSettings();
+  const next = {
+    ...cur,
+    ...partial,
+    ramGb: clampRamGb(partial.ramGb ?? cur.ramGb),
+  };
+  localStorage.setItem(LAUNCHER_SETTINGS_KEY, JSON.stringify(next));
+}
 
 function loadStoredProfiles() {
   try {
@@ -57,26 +85,26 @@ function setLastProfileId(id) {
 }
 
 function persistNewOrUpdatedProfile(userPayload) {
+  const { token: _t, ...rest } = userPayload;
   const list = loadStoredProfiles();
-  const idx = list.findIndex((p) => p.id === userPayload.id);
-  if (idx >= 0) list[idx] = userPayload;
-  else list.push(userPayload);
+  const idx = list.findIndex((p) => p.id === rest.id);
+  if (idx >= 0) list[idx] = rest;
+  else list.push(rest);
   saveStoredProfiles(list);
-  setLastProfileId(userPayload.id);
+  setLastProfileId(rest.id);
 }
 
 export default function App() {
   const [introFinished, setIntroFinished] = useState(false);
-  const [user, setUser] = useState(null); // Stan użytkownika
+  const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('home');
   const [connectionState, setConnectionState] = useState('idle');
   const [progress, setProgress] = useState(0);
-  const [ramSize, setRamSize] = useState(6);
+  const [ramSize, setRamSize] = useState(() => loadLauncherSettings().ramGb);
   const [launchError, setLaunchError] = useState(null);
   const [forceModResyncPending, setForceModResyncPending] = useState(false);
   const [forceModResyncNotice, setForceModResyncNotice] = useState(null);
 
-  // Intro
   useEffect(() => {
     const timer = setTimeout(() => {
       setIntroFinished(true);
@@ -84,19 +112,47 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Przywróć ostatnio używany profil (bez ponownego logowania)
   useEffect(() => {
     if (!introFinished) return;
-    if (!localStorage.getItem(LAST_PROFILE_STORAGE_KEY) && localStorage.getItem(LAST_PROFILE_LEGACY_KEY)) {
-      localStorage.setItem(LAST_PROFILE_STORAGE_KEY, localStorage.getItem(LAST_PROFILE_LEGACY_KEY));
-      localStorage.removeItem(LAST_PROFILE_LEGACY_KEY);
-    }
-    const lastId = localStorage.getItem(LAST_PROFILE_STORAGE_KEY);
-    if (!lastId) return;
-    const profiles = loadStoredProfiles();
-    const found = profiles.find((p) => p.id === lastId);
-    if (found) setUser(found);
+    let cancelled = false;
+    (async () => {
+      if (!localStorage.getItem(LAST_PROFILE_STORAGE_KEY) && localStorage.getItem(LAST_PROFILE_LEGACY_KEY)) {
+        localStorage.setItem(LAST_PROFILE_STORAGE_KEY, localStorage.getItem(LAST_PROFILE_LEGACY_KEY));
+        localStorage.removeItem(LAST_PROFILE_LEGACY_KEY);
+      }
+      const rawProfiles = localStorage.getItem(PROFILES_STORAGE_KEY);
+      if (rawProfiles && window.electronAPI?.migrateProfilesFromLocalStorage) {
+        try {
+          const lastIdBefore = localStorage.getItem(LAST_PROFILE_STORAGE_KEY);
+          const r = await window.electronAPI.migrateProfilesFromLocalStorage({
+            rawJson: rawProfiles,
+            lastProfileId: lastIdBefore,
+          });
+          if (!cancelled && r?.ok && typeof r.profilesJson === 'string') {
+            localStorage.setItem(PROFILES_STORAGE_KEY, r.profilesJson);
+            if (typeof r.newLastProfileId === 'string' && r.newLastProfileId) {
+              setLastProfileId(r.newLastProfileId);
+            }
+          }
+        } catch {}
+      }
+      if (cancelled) return;
+      const lastId = localStorage.getItem(LAST_PROFILE_STORAGE_KEY);
+      if (!lastId) return;
+      const profiles = loadStoredProfiles();
+      const found = profiles.find((p) => p.id === lastId);
+      if (found) setUser(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [introFinished]);
+
+  const updateRamGb = useCallback((value) => {
+    const v = clampRamGb(value);
+    setRamSize(v);
+    saveLauncherSettings({ ramGb: v });
+  }, []);
 
   useEffect(() => {
     if (!introFinished) return undefined;
@@ -110,7 +166,6 @@ export default function App() {
     };
   }, [introFinished, activeTab]);
 
-  // Nasłuchiwanie na IPC z main processu (backendu Electrona)
   useEffect(() => {
     if (!window.electronAPI) return undefined;
     window.electronAPI.onStateChange((newState) => setConnectionState(newState));
@@ -118,22 +173,25 @@ export default function App() {
     window.electronAPI.onLauncherCrash?.((msg) => {
       setLaunchError(String(msg || 'Nieznany błąd uruchomienia.'));
     });
-    window.electronAPI.onProfileTokenRefreshed?.((payload) => {
-      if (!payload?.id || !payload?.token) return;
-      setUser((prev) => {
-        if (!prev || prev.id !== payload.id) return prev;
-        const next = { ...prev, token: payload.token };
-        persistNewOrUpdatedProfile(next);
-        return next;
-      });
-    });
     return undefined;
   }, []);
 
   const handleConnectClick = () => {
     setLaunchError(null);
     if (window.electronAPI) {
-      window.electronAPI.startGame({ ...user, ramSize: `${ramSize}G` });
+      if (user.type === 'offline') {
+        window.electronAPI.startGame({
+          type: 'offline',
+          offlineName: user.name,
+          ramSize: `${ramSize}G`,
+        });
+      } else {
+        window.electronAPI.startGame({
+          type: 'premium',
+          profileId: user.id,
+          ramSize: `${ramSize}G`,
+        });
+      }
     } else {
       simulateConnection();
     }
@@ -215,7 +273,6 @@ export default function App() {
     return <IntroAnimation />;
   }
 
-  // Wymuszenie logowania
   if (!user) {
     return (
       <div className="flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25">
@@ -277,156 +334,147 @@ export default function App() {
         )}
 
         {activeTab === 'settings' && (
-          <div className="mx-auto w-full max-w-3xl px-4 pb-24 pt-8 lg:px-8">
-            <div className="relative overflow-hidden rounded-[1.35rem] border border-glass-border bg-gradient-to-br from-glass/90 via-card/40 to-muted/20 p-px shadow-[0_0_0_1px_hsl(142_69%_58%_/_0.08),0_24px_48px_-12px_hsl(0_0%_0%_/_0.45)]">
-              <div className="rounded-[1.28rem] bg-background/75 px-5 py-8 backdrop-blur-xl sm:px-8 sm:py-10">
-                <div className="mb-10 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10 text-primary shadow-[0_0_24px_hsl(142_69%_58%_/_0.18)]">
-                      <Settings size={24} strokeWidth={2} />
-                    </div>
-                    <div>
-                      <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-brass-light">
-                        CreateCrafts
-                      </p>
-                      <h2 className="text-3xl font-black tracking-tight text-foreground">Ustawienia</h2>
-                      <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Wydajność JVM, paczka modów z serwera i sesja konta — w jednym miejscu.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-glass-border bg-muted/50 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground">
-                      <Sparkles size={12} className="text-primary" />
-                      MC {gamePack.minecraftVersion}
-                    </span>
-                    <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/12 px-3 py-1.5 text-[11px] font-bold text-primary">
-                      NeoForge {gamePack.neoForgeInstallerVersion}
-                    </span>
-                  </div>
-                </div>
-
-                {forceModResyncPending && (
-                  <div className="mb-8 rounded-xl border border-primary/35 bg-primary/10 px-4 py-3 text-sm text-primary">
-                    Zaplanowano ponowną synchronizację modów przy <strong>następnym</strong> starcie gry.
-                  </div>
-                )}
-                {forceModResyncNotice && (
-                  <div className="mb-8 rounded-xl border border-glass-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                    {forceModResyncNotice}
-                  </div>
-                )}
-
-                <div className="flex flex-col gap-6">
-                  <div>
-                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
-                      Wydajność
-                    </p>
-                    <section className="glass-card relative overflow-hidden rounded-2xl border border-brass-dim/25 p-6 shadow-lg">
-                      <div className="pointer-events-none absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/5 blur-2xl" />
-                      <div className="relative mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="flex items-start gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-glass-border bg-primary/10 text-primary">
-                            <Cpu size={22} strokeWidth={2} />
-                          </div>
-                          <div className="min-w-0">
-                            <h3 className="text-lg font-bold text-foreground">Pamięć RAM (heap)</h3>
-                            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                              Przydział dla JVM Minecrafta. Przy większym modpacku zwykle 6–12 GB.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2 rounded-2xl border border-glass-border bg-background/90 px-4 py-2.5 shadow-inner">
-                          <input
-                            type="number"
-                            min="2"
-                            max="32"
-                            value={ramSize}
-                            onChange={(e) => setRamSize(e.target.value)}
-                            className="w-12 bg-transparent text-center text-xl font-black tabular-nums text-primary focus:outline-none"
-                          />
-                          <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">GB</span>
-                        </div>
-                      </div>
-                      <input
-                        type="range"
-                        min="2"
-                        max="16"
-                        step="1"
-                        value={ramSize}
-                        onChange={(e) => setRamSize(e.target.value)}
-                        className="settings-range-slider h-3 w-full cursor-pointer"
-                      />
-                      <p className="mt-3 text-xs text-muted-foreground">
-                        Aktualnie: <span className="font-semibold text-foreground">{ramSize} GB</span> — używane przy
-                        następnym uruchomieniu gry.
-                      </p>
-                    </section>
-                  </div>
-
-                  <div>
-                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
-                      Paczka z serwera
-                    </p>
-                    <section className="glass-card flex flex-col gap-5 rounded-2xl border border-brass-dim/25 p-6 shadow-lg sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-glass-border bg-secondary/10 text-secondary">
-                          <RefreshCw size={22} strokeWidth={2} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-bold text-foreground">Synchronizacja modów</h3>
-                          <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
-                            Wymusza ponowne pobranie wszystkich plików z indeksu createcrafts.pl przy kolejnym starcie
-                            gry (nie kasuje świata).
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleScheduleForceModResync}
-                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/15 px-6 py-3.5 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
-                      >
-                        <RefreshCw size={18} />
-                        Wymuś weryfikację
-                      </button>
-                    </section>
-                  </div>
-
-                  <div>
-                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Konto</p>
-                    <section className="glass-card rounded-2xl border border-brass-dim/25 p-6 shadow-lg">
-                      <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-4">
-                          <ProfileAvatar profile={user} className="h-16 w-16 rounded-2xl border border-glass-border text-lg" />
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                              Aktywna sesja
-                            </p>
-                            <p className="text-lg font-bold text-foreground">{user?.name ?? '—'}</p>
-                            <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
-                              {user?.type === 'premium' ? (
-                                <ShieldCheck size={14} className="text-primary" />
-                              ) : (
-                                <User size={14} />
-                              )}
-                              {user?.type === 'premium' ? 'Konto Microsoft' : 'Gracz offline'}
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleLogout}
-                          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-destructive/35 bg-destructive/10 px-7 py-3.5 text-sm font-bold text-destructive transition-colors hover:bg-destructive/20"
-                        >
-                          <LogOut size={18} />
-                          Wyloguj się
-                        </button>
-                      </div>
-                    </section>
-                  </div>
-                </div>
+          <div className="mx-auto w-full max-w-4xl px-4 pb-16 pt-8 lg:px-8">
+            <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-brass-light">CreateCrafts</p>
+                <h2 className="text-3xl font-black text-foreground">Ustawienia</h2>
+                <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+                  Te same obramowania i typografia co ekran główny i lista modów. RAM zapisuje się w tej aplikacji
+                  (localStorage).
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-glass-border bg-muted/50 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground">
+                  <Sparkles size={12} className="text-primary" />
+                  MC {gamePack.minecraftVersion}
+                </span>
+                <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/12 px-3 py-1.5 text-[11px] font-bold text-primary">
+                  NeoForge {gamePack.neoForgeInstallerVersion}
+                </span>
               </div>
             </div>
+
+            {forceModResyncPending && (
+              <div className="mb-6 rounded-xl border border-primary/35 bg-primary/10 px-4 py-3 text-sm text-primary">
+                Zaplanowano ponowną synchronizację modów przy <strong>następnym</strong> starcie gry.
+              </div>
+            )}
+            {forceModResyncNotice && (
+              <div className="mb-6 rounded-xl border border-glass-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                {forceModResyncNotice}
+              </div>
+            )}
+
+            <CogwheelFrame>
+              <div className="divide-y divide-glass-border/70">
+                <section className="px-5 py-6 sm:px-7 sm:py-7">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+                    Wydajność
+                  </p>
+                  <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-glass-border bg-primary/10 text-primary">
+                        <Cpu size={22} strokeWidth={2} />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-lg font-bold text-foreground">Pamięć RAM (heap)</h3>
+                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                          Przydział dla JVM Minecrafta. Większy modpack zwykle 6–12 GB. Wartość jest zapisywana od razu.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 self-start rounded-2xl border border-glass-border bg-card/50 px-4 py-2.5 sm:self-center">
+                      <input
+                        type="number"
+                        min={2}
+                        max={32}
+                        value={ramSize}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const n = parseInt(raw, 10);
+                          if (raw === '' || Number.isNaN(n)) return;
+                          updateRamGb(n);
+                        }}
+                        onBlur={() => updateRamGb(ramSize)}
+                        className="w-14 bg-transparent text-center text-xl font-black tabular-nums text-primary focus:outline-none focus:ring-0"
+                      />
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">GB</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min={2}
+                    max={32}
+                    step={1}
+                    value={ramSize}
+                    onChange={(e) => updateRamGb(parseInt(e.target.value, 10))}
+                    className="settings-range-slider mt-5 h-3 w-full cursor-pointer"
+                  />
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    <span className="font-semibold text-foreground">{ramSize} GB</span> — używane przy następnym
+                    uruchomieniu gry.
+                  </p>
+                </section>
+
+                <section className="flex flex-col gap-5 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-7 sm:py-7">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-glass-border bg-secondary/10 text-secondary">
+                      <RefreshCw size={22} strokeWidth={2} />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+                        Paczka z serwera
+                      </p>
+                      <h3 className="text-lg font-bold text-foreground">Synchronizacja modów</h3>
+                      <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
+                        Wymusza ponowne pobranie plików z indeksu createcrafts.pl przy kolejnym starcie gry (nie kasuje
+                        świata).
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleScheduleForceModResync}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/15 px-5 py-3 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
+                  >
+                    <RefreshCw size={18} />
+                    Wymuś weryfikację
+                  </button>
+                </section>
+
+                <section className="px-5 py-6 sm:px-7 sm:py-7">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Konto</p>
+                  <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-4">
+                      <ProfileAvatar profile={user} className="h-16 w-16 rounded-2xl border border-glass-border text-lg" />
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          Aktywna sesja
+                        </p>
+                        <p className="text-lg font-bold text-foreground">{user?.name ?? '—'}</p>
+                        <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
+                          {user?.type === 'premium' ? (
+                            <ShieldCheck size={14} className="text-primary" />
+                          ) : (
+                            <User size={14} />
+                          )}
+                          {user?.type === 'premium' ? 'Konto Microsoft' : 'Gracz offline'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/35 bg-destructive/10 px-6 py-3 text-sm font-bold text-destructive transition-colors hover:bg-destructive/20"
+                    >
+                      <LogOut size={18} />
+                      Wyloguj się
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </CogwheelFrame>
           </div>
         )}
       </main>
@@ -618,7 +666,6 @@ function ProfileAvatar({ profile, className = '' }) {
   );
 }
 
-/* KOMPONENT LOGOWANIA */
 function LoginScreen({ onProfileLogin }) {
   const [mode, setMode] = useState('select');
   const [offlineNick, setOfflineNick] = useState('');
@@ -629,10 +676,19 @@ function LoginScreen({ onProfileLogin }) {
 
   const removeStoredProfile = (e, id) => {
     e.stopPropagation();
-    const next = loadStoredProfiles().filter((p) => p.id !== id);
-    saveStoredProfiles(next);
-    if (localStorage.getItem(LAST_PROFILE_STORAGE_KEY) === id) setLastProfileId(next[0]?.id ?? null);
-    refreshProfiles();
+    void (async () => {
+      const list = loadStoredProfiles();
+      const victim = list.find((p) => p.id === id);
+      if (victim?.type === 'premium' && window.electronAPI?.deletePremiumSession) {
+        try {
+          await window.electronAPI.deletePremiumSession(id);
+        } catch {}
+      }
+      const next = list.filter((p) => p.id !== id);
+      saveStoredProfiles(next);
+      if (localStorage.getItem(LAST_PROFILE_STORAGE_KEY) === id) setLastProfileId(next[0]?.id ?? null);
+      refreshProfiles();
+    })();
   };
 
   const handleSelectSavedProfile = (p) => {
@@ -661,7 +717,7 @@ function LoginScreen({ onProfileLogin }) {
           name: 'ProGamer',
           type: 'premium',
           label: 'ProGamer',
-          avatar: 'https://api.mineatar.io/face/ProGamer?scale=4',
+          avatar: '',
         });
       }
     } catch (err) {
@@ -671,20 +727,29 @@ function LoginScreen({ onProfileLogin }) {
     }
   };
 
-  const handleOfflineSubmit = (e) => {
+  const handleOfflineSubmit = async (e) => {
     e.preventDefault();
     if (!offlineNick.trim()) return;
     setLoading(true);
     const nick = offlineNick.trim();
-    setTimeout(() => {
+    try {
+      let avatar = '';
+      let id = crypto.randomUUID();
+      if (window.electronAPI?.mineatarFaceUrl) {
+        const r = await window.electronAPI.mineatarFaceUrl({ offlineName: nick });
+        if (r?.url) avatar = r.url;
+        if (r?.playerUuid) id = r.playerUuid;
+      }
       finishLogin({
         name: nick,
         type: 'offline',
         label: nick,
-        avatar: `https://api.mineatar.io/face/${encodeURIComponent(nick)}?scale=4`,
+        id,
+        avatar,
       });
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   };
 
   return (
@@ -826,7 +891,6 @@ function LoginScreen({ onProfileLogin }) {
   );
 }
 
-/* POZOSTAŁE KOMPONENTY POBOCZNE */
 function TitleBar() {
   return (
     <div

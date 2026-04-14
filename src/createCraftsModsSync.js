@@ -241,7 +241,9 @@ async function fetchAndVerifyModsManifest(apiKey, onLog) {
   }
   if (!verifyLauncherModsManifestSignature(manifest, apiKey)) {
     throw new Error(
-      'Podpis HMAC manifestu modów jest nieprawidłowy — nie pobieram plików (możliwa manipulacja danymi lub niewłaściwy pierwszy klucz z listy).'
+      'Podpis manifestu modów nie zgadza się z kluczem w launcherze — nie pobieram plików. ' +
+        'Możliwa manipulacja odpowiedzią, zmiana klucza po stronie serwera albo kompromitacja — pobierz najnowszy launcher z oficjalnej strony createcrafts.pl. ' +
+        'Przy buildzie dev: sprawdź LAUNCHER_MODS_API_KEY / branding/launcher-mods-key.enc zgodne z panelem API.'
     );
   }
   if (onLog) {

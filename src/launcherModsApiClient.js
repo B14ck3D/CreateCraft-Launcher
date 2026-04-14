@@ -44,7 +44,14 @@ function modsApiBaseUrl() {
 }
 
 function httpErrorMessage(statusCode) {
-  if (statusCode === 401) return 'Odrzucono klucz API modów (401). Sprawdź LAUNCHER_MODS_API_KEY lub plik launcher-mods-api-key.';
+  if (statusCode === 401) {
+    return (
+      'Serwer odrzucił klucz dostępu do listy modów (401). ' +
+      'Jeśli to oficjalny instalator z createcrafts.pl: możliwa jest kompromitacja infrastruktury albo nieaktualny launcher — ' +
+      'pobierz najnowszą wersję MSI z oficjalnej strony. ' +
+      'Przy oficjalnym MSI pierwszeństwo ma wbudowany launcher-mods-key.enc (stary plik launcher-mods-api-key w userData jest usuwany). Lokalnie bez tego pliku: LAUNCHER_MODS_API_KEY albo launcher-mods-api-key w userData.'
+    );
+  }
   if (statusCode === 503) return 'Serwer modów niedostępny (503) — brak konfiguracji lub katalogu MODS_DIR po stronie panel-api.';
   if (statusCode === 404) return 'Nie znaleziono pliku moda (404).';
   if (statusCode === 400) return 'Nieprawidłowe żądanie pobrania moda (400).';

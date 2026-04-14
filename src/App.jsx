@@ -339,10 +339,6 @@ export default function App() {
               <div>
                 <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-brass-light">CreateCrafts</p>
                 <h2 className="text-3xl font-black text-foreground">Ustawienia</h2>
-                <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-                  Te same obramowania i typografia co ekran główny i lista modów. RAM zapisuje się w tej aplikacji
-                  (localStorage).
-                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-glass-border bg-muted/50 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground">
@@ -555,13 +551,6 @@ function ModsListPanel() {
         <div>
           <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-brass-light">CreateCrafts</p>
           <h2 className="text-3xl font-black text-foreground">Mody z serwera</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Lista z API{' '}
-            <code className="text-primary/90">/api/launcher/mods/manifest</code> (klucz{' '}
-            <code className="text-primary/90">LAUNCHER_MODS_API_KEY</code> lub plik{' '}
-            <code className="text-primary/90">launcher-mods-api-key</code> w folderze danych aplikacji). Synchronizacja
-            przy starcie gry + weryfikacja SHA-256.
-          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button

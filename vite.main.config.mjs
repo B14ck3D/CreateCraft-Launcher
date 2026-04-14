@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig } from 'vite';
@@ -23,8 +23,13 @@ export default defineConfig({
           join(__dirname, 'src', 'gamePackConstants.json'),
           join(outDir, 'gamePackConstants.json')
         );
+        const srvDefault = join(__dirname, 'build', 'createcrafts-servers-default.dat');
+        if (existsSync(srvDefault)) {
+          copyFileSync(srvDefault, join(outDir, 'createcrafts-servers-default.dat'));
+        }
         for (const f of [
           'launcherModsApiKey.js',
+          'launcherModsKeyEmbed.js',
           'launcherModsManifestSignature.js',
           'launcherModsApiClient.js',
         ]) {

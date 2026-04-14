@@ -10,7 +10,15 @@ module.exports = {
     executableName: 'CreateCrafts Launcher',
     extraResource: (() => {
       const icon = path.join(__dirname, 'public', 'icon.png');
-      return fs.existsSync(icon) ? [icon] : [];
+      const srv = path.join(__dirname, 'build', 'createcrafts-servers-default.dat');
+      const plainKey = path.join(__dirname, 'build', 'launcher-mods-key');
+      const encKey = path.join(__dirname, 'build', 'launcher-mods-key.enc');
+      const out = [];
+      if (fs.existsSync(icon)) out.push(icon);
+      if (fs.existsSync(srv)) out.push(srv);
+      if (fs.existsSync(plainKey)) out.push(plainKey);
+      if (fs.existsSync(encKey)) out.push(encKey);
+      return out;
     })(),
   },
   rebuildConfig: {},

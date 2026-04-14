@@ -1,1 +1,10 @@
 __REPLACE_WITH_LAUNCHER_MODS_API_KEY_FROM_ADMIN_MIN_16_CHARS__
+
+# Dystrybucja MSI na stronę (działa u każdego bez pliku w %AppData%):
+# 1) Jednorazowo (sekret tylko lokalnie), zapis do brandingu:
+#    echo TWOJ_KLUCZ | node scripts/embed-mods-api-key.cjs --stdin --branding
+#    albo: LAUNCHER_MODS_API_KEY=... USE_ENV_LAUNCHER_MODS_KEY=1 npm run embed:mods-key -- --branding
+# 2) Zacommituj branding/launcher-mods-key.enc (blob AES-GCM, nie jawny klucz).
+# 3) Opcjonalnie lokalnie bez szyfrowania: jedna linia w branding/launcher-mods-key (gitignored) — nie commituj.
+#
+# Gdy jest branding/launcher-mods-key.enc, zwykla zmienna LAUNCHER_MODS_API_KEY nie nadpisuje (chyba ze USE_ENV_LAUNCHER_MODS_KEY=1).

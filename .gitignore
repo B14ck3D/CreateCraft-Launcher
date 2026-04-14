@@ -1,7 +1,7 @@
 node_modules/
 out/
 build/
-# Certyfikat podpisu (generowany lokalnie — nie commituj)
+# Certyfikat Authenticode (lokalnie / CI — nie commituj). Self-signed skrypty usuniete; tu zostaje miejsce na PFX od wydawcy.
 build/codesign.pfx
 build/codesign-password.txt
 .vite/
@@ -12,6 +12,7 @@ dist/
 .env.*
 # Klucz API modów (tylko lokalnie / na dysku użytkownika — nie commituj)
 launcher-mods-api-key
+branding/launcher-mods-key
 Thumbs.db
 asar.txt
 app-asar-new.txt

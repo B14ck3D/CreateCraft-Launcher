@@ -7,12 +7,12 @@
   "private": true,
   "scripts": {
     "prep:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-branding.ps1",
+    "embed:mods-key": "node scripts/embed-mods-api-key.cjs",
+    "embed:mods-key:stdin": "node scripts/embed-mods-api-key.cjs --stdin",
     "start": "electron-forge start",
     "package": "electron-forge package",
-    "prepackage": "npm run prep:brand",
+    "prepackage": "npm run prep:brand && node scripts/embed-mods-api-key.cjs",
     "make": "npm run package && electron-builder --win msi --x64 --prepackaged out/createcrafts-installer-win32-x64",
-    "make:signed": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/make-signed.ps1",
-    "codesign:cert": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/New-CodeSigningCertificate.ps1",
     "clean": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-build.ps1",
     "clean:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -All",
     "rebuild:all": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/rebuild-all.ps1",
@@ -69,7 +69,6 @@
     "lucide-react": "^1.8.0",
     "minecraft-launcher-core": "^3.18.2",
     "msmc": "^5.0.5",
-    "prismarine-nbt": "^2.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   }

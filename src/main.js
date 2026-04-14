@@ -25,6 +25,24 @@ const { spawnSync, execSync } = child;
 const { Auth, tokenUtils } = require('msmc');
 
 const { ensureDefaultServerInServersDatSync } = require('./serversDat');
+
+/** branding/servers.dat (1:1) jako createcrafts-servers-default.dat w paczce; kopiowane do gry jako servers.dat. */
+function getBrandingServersTemplatePath() {
+  try {
+    if (app.isPackaged) {
+      const p = path.join(process.resourcesPath, 'createcrafts-servers-default.dat');
+      if (fs.existsSync(p)) return p;
+      return null;
+    }
+    const beside = path.join(__dirname, 'createcrafts-servers-default.dat');
+    if (fs.existsSync(beside)) return beside;
+    const fromBuild = path.resolve(path.join(__dirname, '..', '..', 'build', 'createcrafts-servers-default.dat'));
+    if (fs.existsSync(fromBuild)) return fromBuild;
+  } catch {
+  }
+  return null;
+}
+
 const MCLCInner = require('minecraft-launcher-core/components/launcher');
 MCLCInner.prototype.startMinecraft = function patchedStartMinecraft(launchArguments) {
   const gameRootForServers = path.resolve(this.options.overrides?.cwd || this.options.root);
@@ -39,7 +57,7 @@ MCLCInner.prototype.startMinecraft = function patchedStartMinecraft(launchArgume
       } catch {
       }
     };
-    ensureDefaultServerInServersDatSync(gameRootForServers, onLog);
+    ensureDefaultServerInServersDatSync(gameRootForServers, onLog, getBrandingServersTemplatePath());
   } catch (e) {
     try {
       const logPath = path.join(gameRootForServers, 'createcrafts-launcher.log');
@@ -556,14 +574,14 @@ ipcMain.on('start-game', async (event, authData) => {
 
   launcher.once('package-extract', () => {
     try {
-      ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog);
+      ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog, getBrandingServersTemplatePath());
     } catch (e) {
       appendLaunchLog(`[servers.dat] package-extract: ${e?.message || e}`);
     }
   });
   launcher.once('arguments', () => {
     try {
-      ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog);
+      ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog, getBrandingServersTemplatePath());
     } catch (e) {
       appendLaunchLog(`[servers.dat] arguments: ${e?.message || e}`);
     }
@@ -747,7 +765,7 @@ ipcMain.on('start-game', async (event, authData) => {
       `Start gry ${MC_VERSION} (${useCreateCraftsModpack ? 'NeoForge + CreateCrafts mods' : 'vanilla'}) java=${javaPath} serwer=${serverHost}:${serverPort}`
     );
 
-    ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog);
+    ensureDefaultServerInServersDatSync(gameRoot, appendLaunchLog, getBrandingServersTemplatePath());
 
     const opts = {
       clientPackage: null,

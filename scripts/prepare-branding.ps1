@@ -35,3 +35,25 @@ $bmp.Dispose()
 $pub = Join-Path $proj 'public\icon.png'
 Copy-Item -LiteralPath $outPng -Destination $pub -Force
 Write-Host "OK: $outPng + $pub"
+
+$brandSrv = Join-Path $proj 'branding\servers.dat'
+$outSrv = Join-Path $outDir 'createcrafts-servers-default.dat'
+if (-not (Test-Path $brandSrv)) { throw "Brak szablonu listy serwerow (NBT): $brandSrv" }
+Copy-Item -LiteralPath $brandSrv -Destination $outSrv -Force
+Write-Host "OK: $outSrv (servers.dat 1:1 z branding)"
+
+$brandPlain = Join-Path $proj 'branding\launcher-mods-key'
+$outPlain = Join-Path $outDir 'launcher-mods-key'
+if (Test-Path $brandPlain) {
+  Copy-Item -LiteralPath $brandPlain -Destination $outPlain -Force
+  Write-Host "OK: $outPlain (mods API key plain text from branding -> do not commit this file)"
+}
+
+$brandModsKey = Join-Path $proj 'branding\launcher-mods-key.enc'
+$outModsKey = Join-Path $outDir 'launcher-mods-key.enc'
+if (Test-Path $brandModsKey) {
+  Copy-Item -LiteralPath $brandModsKey -Destination $outModsKey -Force
+  Write-Host "OK: $outModsKey (mods API key .enc from branding -> MSI for all downloaders)"
+} elseif (-not (Test-Path $brandPlain)) {
+  Write-Host "INFO: Missing $brandModsKey and $brandPlain - set LAUNCHER_MODS_API_KEY for make, or: echo KEY | node scripts/embed-mods-api-key.cjs --stdin --branding"
+}

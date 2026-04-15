@@ -102,8 +102,33 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [ramSize, setRamSize] = useState(() => loadLauncherSettings().ramGb);
   const [launchError, setLaunchError] = useState(null);
+  const [jdkInstallNotice, setJdkInstallNotice] = useState(null);
   const [forceModResyncPending, setForceModResyncPending] = useState(false);
   const [forceModResyncNotice, setForceModResyncNotice] = useState(null);
+
+  // Blokada odświeżania SPA (F5 / Ctrl+R) — osobne okno logowania MS nie używa tego bundla.
+  useEffect(() => {
+    const blockReloadShortcuts = (e) => {
+      const t = e.target;
+      const tag = t && t.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || t?.isContentEditable) return;
+
+      if (e.key === 'F5' || e.code === 'F5') {
+        e.preventDefault();
+        return;
+      }
+      const isR = e.key === 'r' || e.key === 'R';
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && isR) {
+        e.preventDefault();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && isR) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', blockReloadShortcuts, { capture: true });
+    return () => window.removeEventListener('keydown', blockReloadShortcuts, { capture: true });
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -168,16 +193,70 @@ export default function App() {
 
   useEffect(() => {
     if (!window.electronAPI) return undefined;
-    window.electronAPI.onStateChange((newState) => setConnectionState(newState));
-    window.electronAPI.onProgress((newProgress) => setProgress(newProgress));
-    window.electronAPI.onLauncherCrash?.((msg) => {
-      setLaunchError(String(msg || 'Nieznany błąd uruchomienia.'));
-    });
-    return undefined;
+    let cancelled = false;
+    const unsubs = [];
+
+    void (async () => {
+      try {
+        const u1 = await window.electronAPI.onStateChange((newState) => {
+          if (!cancelled) setConnectionState(newState);
+        });
+        if (cancelled) {
+          u1();
+          return;
+        }
+        unsubs.push(u1);
+
+        const u2 = await window.electronAPI.onProgress((newProgress) => {
+          if (!cancelled) setProgress(newProgress);
+        });
+        if (cancelled) {
+          u2();
+          return;
+        }
+        unsubs.push(u2);
+
+        if (window.electronAPI.onLauncherCrash) {
+          const u3 = await window.electronAPI.onLauncherCrash((msg) => {
+            if (!cancelled) {
+              setLaunchError(String(msg || 'Nieznany błąd uruchomienia.'));
+            }
+          });
+          if (cancelled) {
+            u3();
+            return;
+          }
+          unsubs.push(u3);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      for (const u of unsubs) {
+        if (typeof u === 'function') u();
+      }
+    };
+  }, []);
+
+  const runJdkElevatedInstall = useCallback(async () => {
+    if (!window.electronAPI?.installSystemJdkElevated) {
+      setJdkInstallNotice('Instalator JDK jest dostępny tylko w zbudowanej aplikacji.');
+      return;
+    }
+    try {
+      const m = await window.electronAPI.installSystemJdkElevated();
+      setJdkInstallNotice(m);
+    } catch (e) {
+      setJdkInstallNotice(String(e));
+    }
   }, []);
 
   const handleConnectClick = () => {
     setLaunchError(null);
+    setJdkInstallNotice(null);
     if (window.electronAPI) {
       if (user.type === 'offline') {
         window.electronAPI.startGame({
@@ -298,9 +377,26 @@ export default function App() {
             <pre className="mb-4 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-glass-border bg-background/80 p-3 font-mono text-xs text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {launchError}
             </pre>
+            {jdkInstallNotice && (
+              <p className="mb-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
+                {jdkInstallNotice}
+              </p>
+            )}
+            {launchError && /JDK|Java|java/.test(launchError) && window.electronAPI?.installSystemJdkElevated && (
+              <button
+                type="button"
+                onClick={() => void runJdkElevatedInstall()}
+                className="mb-3 w-full rounded-xl border border-primary/40 bg-primary/15 py-3 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
+              >
+                Instalator JDK 21 (okno UAC)
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setLaunchError(null)}
+              onClick={() => {
+                setLaunchError(null);
+                setJdkInstallNotice(null);
+              }}
               className="w-full rounded-xl border border-glass-border bg-muted py-3 text-sm font-bold text-foreground transition-colors hover:bg-muted/80"
             >
               Zamknij
@@ -364,6 +460,27 @@ export default function App() {
 
             <CogwheelFrame>
               <div className="divide-y divide-glass-border/70">
+                <section className="px-5 py-6 sm:px-7 sm:py-7">
+                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Java</p>
+                  <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+                    Jeśli gra nie widzi JDK 21, możesz pobrać instalator Temurin i uruchomić go z uprawnieniami administratora
+                    (pojawi się okno UAC).
+                  </p>
+                  {jdkInstallNotice && (
+                    <p className="mb-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
+                      {jdkInstallNotice}
+                    </p>
+                  )}
+                  {window.electronAPI?.installSystemJdkElevated && (
+                    <button
+                      type="button"
+                      onClick={() => void runJdkElevatedInstall()}
+                      className="rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
+                    >
+                      Instalator JDK 21 (UAC)
+                    </button>
+                  )}
+                </section>
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
                     Wydajność
@@ -680,6 +797,7 @@ function LoginScreen({ onProfileLogin }) {
   const [mode, setMode] = useState('select');
   const [offlineNick, setOfflineNick] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState(null);
   const [savedProfiles, setSavedProfiles] = useState(() => loadStoredProfiles());
 
   const refreshProfiles = () => setSavedProfiles(loadStoredProfiles());
@@ -713,6 +831,7 @@ function LoginScreen({ onProfileLogin }) {
   };
 
   const handlePremiumLogin = async () => {
+    setLoginError(null);
     setLoading(true);
     try {
       if (window.electronAPI) {
@@ -731,7 +850,11 @@ function LoginScreen({ onProfileLogin }) {
         });
       }
     } catch (err) {
-      console.error('Login failed', err);
+      const msg =
+        typeof err === 'string'
+          ? err
+          : err?.message || err?.toString?.() || 'Logowanie Microsoft nie powiodło się.';
+      setLoginError(msg);
     } finally {
       setLoading(false);
     }
@@ -785,6 +908,15 @@ function LoginScreen({ onProfileLogin }) {
         <p className="mb-6 px-4 text-center text-sm text-muted-foreground">
           Wybierz zapisaną sesję albo dodaj nowe konto.
         </p>
+
+        {loginError && (
+          <div
+            role="alert"
+            className="mb-4 w-full rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-sm text-destructive"
+          >
+            {loginError}
+          </div>
+        )}
 
         {savedProfiles.length > 0 && mode === 'select' && (
           <div className="mb-6 w-full space-y-2">

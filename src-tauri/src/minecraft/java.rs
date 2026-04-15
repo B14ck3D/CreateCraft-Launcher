@@ -44,8 +44,22 @@ fn adoptium_download_url() -> String {
 // Bundled JDK path helpers
 // ---------------------------------------------------------------------------
 
-fn marker_path(runtime_base: &Path) -> PathBuf {
+pub(crate) fn marker_path(runtime_base: &Path) -> PathBuf {
     runtime_base.join(".jdk-home")
+}
+
+/// Removes a broken or outdated portable JDK under `runtime_base` so
+/// `ensure_java_21` can download a fresh copy.
+pub fn purge_portable_jdk(runtime_base: &Path) -> Result<()> {
+    let _ = std::fs::remove_dir_all(runtime_base.join("__download"));
+    let _ = std::fs::remove_dir_all(runtime_base.join("__extract"));
+    let _ = std::fs::remove_dir_all(runtime_root_jdk_dir(runtime_base));
+    let _ = std::fs::remove_file(marker_path(runtime_base));
+    Ok(())
+}
+
+fn runtime_root_jdk_dir(runtime_base: &Path) -> PathBuf {
+    runtime_base.join("jdk")
 }
 
 fn read_marker(runtime_base: &Path) -> Option<PathBuf> {
@@ -68,7 +82,9 @@ fn write_marker(runtime_base: &Path, jdk_home: &Path) {
 /// Returns the path to the `java` / `java.exe` binary inside the bundled JDK,
 /// or `None` if not yet installed.
 pub fn find_bundled_java(runtime_base: &Path) -> Option<PathBuf> {
-    let fixed = runtime_base.join("jdk").join("bin").join(java_exe_name());
+    let fixed = runtime_root_jdk_dir(runtime_base)
+        .join("bin")
+        .join(java_exe_name());
     if fixed.exists() {
         return Some(fixed);
     }
@@ -85,8 +101,29 @@ pub fn find_bundled_java(runtime_base: &Path) -> Option<PathBuf> {
 // Java version detection
 // ---------------------------------------------------------------------------
 
+/// Prefer `java.exe` next to `javaw.exe` for `-version` on Windows — `javaw`
+/// may not emit version text reliably.
+fn java_version_probe_exe(java_path: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if java_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n.eq_ignore_ascii_case("javaw.exe"))
+            .unwrap_or(false)
+        {
+            let alt = java_path.with_file_name("java.exe");
+            if alt.exists() {
+                return alt;
+            }
+        }
+    }
+    java_path.to_path_buf()
+}
+
 pub fn java_major_version(java_path: &Path) -> u32 {
-    let out = Command::new(java_path)
+    let probe = java_version_probe_exe(java_path);
+    let out = Command::new(&probe)
         .arg("-version")
         .output()
         .ok()
@@ -231,7 +268,7 @@ pub async fn ensure_java_21(
     let url = adoptium_download_url();
     let dl_dir = runtime_base.join("__download");
     let extract_dir = runtime_base.join("__extract");
-    let final_jdk = runtime_base.join("jdk");
+    let final_jdk = runtime_root_jdk_dir(runtime_base);
 
     let ext = if cfg!(target_os = "windows") {
         ".zip"
@@ -269,6 +306,27 @@ pub async fn ensure_java_21(
 }
 
 async fn download_with_progress(
+    url: &str,
+    dest: &Path,
+    on_progress: &impl Fn(u32),
+) -> Result<()> {
+    let mut last_err: Option<LauncherError> = None;
+    for attempt in 1u32..=3u32 {
+        match download_with_progress_once(url, dest, on_progress).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last_err = Some(e);
+                let _ = tokio::fs::remove_file(dest.with_extension("part")).await;
+                if attempt < 3 {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| LauncherError::Java("Pobieranie nie powiodło się.".into())))
+}
+
+async fn download_with_progress_once(
     url: &str,
     dest: &Path,
     on_progress: &impl Fn(u32),
@@ -348,6 +406,62 @@ pub fn build_http_client() -> Result<reqwest::Client> {
         .timeout(std::time::Duration::from_secs(180))
         .build()
         .map_err(LauncherError::Http)
+}
+
+// ---------------------------------------------------------------------------
+// Windows: system-wide Temurin MSI (elevated via UAC)
+// ---------------------------------------------------------------------------
+
+/// Adoptium API URL for the Windows `.msi` JDK installer.
+#[cfg(target_os = "windows")]
+pub fn adoptium_windows_jdk_msi_url() -> String {
+    let arch = if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x64"
+    };
+    format!(
+        "https://api.adoptium.net/v3/installer/latest/{JAVA_MAJOR}/ga/windows/{arch}/jdk/hotspot/normal/eclipse"
+    )
+}
+
+/// Downloads the Temurin MSI to `dest` (Windows).
+#[cfg(target_os = "windows")]
+pub async fn download_windows_jdk_msi(dest: &Path) -> Result<()> {
+    let url = adoptium_windows_jdk_msi_url();
+    let noop = |_| {};
+    download_with_progress(&url, dest, &noop).await
+}
+
+/// Starts `msiexec /i … /passive` elevated (UAC prompt).
+#[cfg(target_os = "windows")]
+pub fn launch_elevated_msi_installer(msi_path: &Path) -> Result<()> {
+    let msi = msi_path
+        .canonicalize()
+        .map_err(|e| LauncherError::Java(format!("Nie można odczytać ścieżki MSI: {e}")))?;
+    let m = msi.to_string_lossy().replace('\'', "''");
+    let ps = format!(
+        "Start-Process -FilePath msiexec.exe -Verb RunAs -ArgumentList '/i','{m}','/passive'"
+    );
+    Command::new("powershell.exe")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps])
+        .spawn()
+        .map_err(|e| LauncherError::Java(format!("Uruchomienie instalatora (UAC): {e}")))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub async fn download_windows_jdk_msi(_dest: &Path) -> Result<()> {
+    Err(LauncherError::Java(
+        "Instalacja systemowa JDK jest obsługiwana tylko na Windows.".into(),
+    ))
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn launch_elevated_msi_installer(_msi_path: &Path) -> Result<()> {
+    Err(LauncherError::Java(
+        "Instalacja systemowa JDK jest obsługiwana tylko na Windows.".into(),
+    ))
 }
 
 // ---------------------------------------------------------------------------

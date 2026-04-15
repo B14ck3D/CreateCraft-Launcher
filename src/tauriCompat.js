@@ -41,20 +41,18 @@ window.electronAPI = {
     }),
 
   // ----------------------------------------------------------------
-  // Events (one-time listener registration on first call)
+  // Events — returns Promise<unlisten> for React cleanup
   // ----------------------------------------------------------------
-  onStateChange: (callback) => {
-    listen('launcher-state', (event) => callback(event.payload));
-  },
-  onProgress: (callback) => {
-    listen('launcher-progress', (event) => callback(event.payload));
-  },
-  onLauncherLog: (callback) => {
-    listen('launcher-log', (event) => callback(event.payload));
-  },
-  onLauncherCrash: (callback) => {
-    listen('launcher-crash', (event) => callback(event.payload));
-  },
+  onStateChange: (callback) =>
+    listen('launcher-state', (event) => callback(event.payload)),
+  onProgress: (callback) =>
+    listen('launcher-progress', (event) => callback(event.payload)),
+  onLauncherLog: (callback) =>
+    listen('launcher-log', (event) => callback(event.payload)),
+  onLauncherCrash: (callback) =>
+    listen('launcher-crash', (event) => callback(event.payload)),
+
+  installSystemJdkElevated: () => invoke('install_system_jdk_elevated'),
 
   // ----------------------------------------------------------------
   // Mods

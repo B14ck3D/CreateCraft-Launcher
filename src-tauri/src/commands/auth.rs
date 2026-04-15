@@ -10,7 +10,14 @@
 use crate::error::{LauncherError, Result};
 use crate::session::store::{delete_session, save_session, PremiumSession};
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+
+/// Only one Microsoft login flow at a time (avoids overlapping WebviewWindows).
+static MS_LOGIN_BUSY: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+fn ms_login_lock() -> &'static tokio::sync::Mutex<()> {
+    MS_LOGIN_BUSY.get_or_init(|| tokio::sync::Mutex::new(()))
+}
 
 // ---------------------------------------------------------------------------
 // Returned profile type (matches what App.jsx expects)
@@ -51,6 +58,32 @@ fn extract_auth_code(url: &str) -> Option<String> {
     u.query_pairs()
         .find(|(k, _)| k == "code")
         .map(|(_, v)| v.to_string())
+}
+
+fn extract_oauth_error(url: &str) -> Option<(String, Option<String>)> {
+    let u = reqwest::Url::parse(url).ok()?;
+    let mut err: Option<String> = None;
+    let mut desc: Option<String> = None;
+    for (k, v) in u.query_pairs() {
+        if k == "error" {
+            err = Some(v.into_owned());
+        } else if k == "error_description" {
+            desc = Some(v.into_owned());
+        }
+    }
+    err.map(|e| (e, desc))
+}
+
+fn oauth_error_user_message(error: &str, desc: Option<&str>) -> String {
+    let base = match error {
+        "access_denied" => "Logowanie zostało anulowane lub odrzucone.".to_string(),
+        "consent_required" => "Wymagana jest zgoda na dostęp do konta Microsoft.".to_string(),
+        _ => format!("Logowanie Microsoft nie powiodło się (kod: {error})."),
+    };
+    match desc {
+        Some(d) if !d.trim().is_empty() => format!("{base} Szczegóły: {d}"),
+        _ => base,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -300,10 +333,10 @@ fn mineatar_url(uuid: &str) -> String {
 
 async fn do_ms_auth(app: &tauri::AppHandle) -> Result<PremiumSession> {
     let auth_url = ms_auth_url();
-    let (tx, rx) = tokio::sync::oneshot::channel::<String>();
-    let tx = Arc::new(Mutex::new(Some(tx)));
+    let (tx, rx) = tokio::sync::oneshot::channel::<std::result::Result<String, String>>();
+    let tx_holder = Arc::new(Mutex::new(Some(tx)));
 
-    let tx_clone = tx.clone();
+    let tx_nav = tx_holder.clone();
     let auth_window = tauri::WebviewWindowBuilder::new(
         app,
         "auth",
@@ -317,12 +350,22 @@ async fn do_ms_auth(app: &tauri::AppHandle) -> Result<PremiumSession> {
     .on_navigation(move |url| {
         let url_str = url.to_string();
         if url_str.contains("login.live.com/oauth20_desktop.srf") {
-            if let Some(code) = extract_auth_code(&url_str) {
-                if let Ok(mut guard) = tx_clone.lock() {
+            if let Some((err, desc)) = extract_oauth_error(&url_str) {
+                if let Ok(mut guard) = tx_nav.lock() {
                     if let Some(sender) = guard.take() {
-                        let _ = sender.send(code);
+                        let msg = oauth_error_user_message(&err, desc.as_deref());
+                        let _ = sender.send(Err(msg));
                     }
                 }
+                return false;
+            }
+            if let Some(code) = extract_auth_code(&url_str) {
+                if let Ok(mut guard) = tx_nav.lock() {
+                    if let Some(sender) = guard.take() {
+                        let _ = sender.send(Ok(code));
+                    }
+                }
+                return false;
             }
         }
         true
@@ -330,9 +373,29 @@ async fn do_ms_auth(app: &tauri::AppHandle) -> Result<PremiumSession> {
     .build()
     .map_err(|e| LauncherError::Auth(format!("Nie można otworzyć okna logowania: {e}")))?;
 
-    let code = rx
+    let tx_destroy = tx_holder.clone();
+    auth_window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            if let Ok(mut guard) = tx_destroy.lock() {
+                if let Some(sender) = guard.take() {
+                    let _ = sender.send(Err(
+                        "Okno logowania zostało zamknięte przed ukończeniem autoryzacji.".into(),
+                    ));
+                }
+            }
+        }
+    });
+
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(900), rx)
         .await
-        .map_err(|_| LauncherError::Auth("Logowanie anulowane przez użytkownika.".into()))?;
+        .map_err(|_| {
+            LauncherError::Auth(
+                "Przekroczono czas oczekiwania na logowanie (15 minut). Spróbuj ponownie.".into(),
+            )
+        })?
+        .map_err(|_| LauncherError::Auth("Logowanie zostało przerwane.".into()))?;
+
+    let code = outcome.map_err(LauncherError::Auth)?;
 
     let _ = auth_window.close();
 
@@ -406,6 +469,16 @@ pub async fn ensure_session_valid(session: &mut PremiumSession) -> Result<()> {
 /// Opens the Microsoft login window, exchanges tokens, saves session, returns profile.
 #[tauri::command]
 pub async fn login_microsoft(app: tauri::AppHandle) -> std::result::Result<ProfileResult, String> {
+    let _busy = match ms_login_lock().try_lock() {
+        Ok(g) => g,
+        Err(_) => {
+            return Err(
+                "Logowanie Microsoft już trwa — poczekaj na zakończenie lub zamknij okno logowania."
+                    .into(),
+            );
+        }
+    };
+
     let session = do_ms_auth(&app).await.map_err(|e| e.to_string())?;
     save_session(&session).map_err(|e| e.to_string())?;
     let avatar = mineatar_url(&session.uuid);

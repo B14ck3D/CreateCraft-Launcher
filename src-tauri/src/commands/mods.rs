@@ -3,6 +3,7 @@ use crate::crypto::key_embed::load_embedded_mods_api_key;
 use crate::crypto::manifest_sig::ModManifest;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+#[cfg(not(debug_assertions))]
 use tauri::Manager;
 
 const FORCE_RESYNC_FLAG: &str = "createcrafts-force-mods-resync.flag";
@@ -35,6 +36,7 @@ fn mods_api_base() -> String {
 fn get_resource_dir(app: &tauri::AppHandle) -> PathBuf {
     #[cfg(debug_assertions)]
     {
+        let _ = app;
         // In dev, look beside the binary or in build/
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
             .map(PathBuf::from)

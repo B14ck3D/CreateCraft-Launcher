@@ -18,6 +18,7 @@ pub fn run() {
             commands::auth::mineatar_face_url,
             // game
             commands::game::start_game,
+            commands::game::install_system_jdk_elevated,
             // mods
             commands::mods::get_mods_info,
             commands::mods::force_mod_resync_next,

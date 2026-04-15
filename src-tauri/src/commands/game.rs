@@ -5,7 +5,8 @@ use crate::commands::auth::ensure_session_valid;
 use crate::commands::mods::sync_mods;
 use crate::minecraft::assets::{build_mc_client, download_minecraft_files, fetch_version_json, resolve_full_version};
 use crate::minecraft::java::{
-    ensure_java_21, find_bundled_java, java_major_version, resolve_system_java, MIN_JAVA_MAJOR,
+    download_windows_jdk_msi, ensure_java_21, find_bundled_java, java_major_version,
+    launch_elevated_msi_installer, purge_portable_jdk, resolve_system_java, MIN_JAVA_MAJOR,
 };
 use crate::minecraft::launcher::{build_launch_args, spawn_game, AuthInfo, LaunchConfig};
 use crate::minecraft::neoforge::{ensure_neoforge, neoforge_version_json_path, resolve_neoforge_version, MC_VERSION};
@@ -40,6 +41,7 @@ fn default_game_root() -> PathBuf {
 fn get_resource_dir(app: &tauri::AppHandle) -> PathBuf {
     #[cfg(debug_assertions)]
     {
+        let _ = app;
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("."));
@@ -188,15 +190,26 @@ pub async fn start_game(
     let runtime_root = bundled_java_runtime_root(&app);
     let java_path = {
         let cached = find_bundled_java(&runtime_root);
-        if let Some(ref exe) = cached {
-            let major = java_major_version(exe);
-            if major >= MIN_JAVA_MAJOR {
-                emit_progress(&app, 100);
-                exe.clone()
-            } else {
-                cached.unwrap_or_default()
+        let bundled_ok = match &cached {
+            Some(exe) => {
+                let major = java_major_version(exe);
+                major >= MIN_JAVA_MAJOR
             }
+            None => false,
+        };
+
+        if bundled_ok {
+            emit_progress(&app, 100);
+            cached.expect("bundled_ok implies Some").clone()
         } else {
+            if cached.is_some() {
+                if let Err(e) = purge_portable_jdk(&runtime_root) {
+                    log!(&format!("Nie udało się usunąć starego JDK: {e}"));
+                } else {
+                    log!("Wykryto nieaktualne lub uszkodzone JDK w folderze runtime — ponawiam instalację JDK 21.");
+                }
+            }
+
             emit_state(&app, "java-download");
             emit_progress(&app, 0);
 
@@ -215,7 +228,7 @@ pub async fn start_game(
                             crash_and_return!(format!(
                                 "Znaleziono Java {}, a wymagane jest JDK {}.\n\
                                  Launcher próbował pobrać JDK do folderu:\n{}\n\
-                                 Sprawdź połączenie z internetem lub ustaw JAVA_HOME.\n\
+                                 W ustawieniach możesz uruchomić instalator systemowy (UAC).\n\
                                  Pełny log: {}",
                                 sys_major.max(major).max(0),
                                 MIN_JAVA_MAJOR,
@@ -235,7 +248,7 @@ pub async fn start_game(
                         crash_and_return!(format!(
                             "Znaleziono Java {}, a wymagane jest JDK {}.\n\
                              Launcher próbował pobrać JDK do folderu:\n{}\n\
-                             Sprawdź połączenie z internetem lub ustaw JAVA_HOME.\n\
+                             W ustawieniach możesz uruchomić instalator systemowy (UAC).\n\
                              Pełny log: {}",
                             sys_major,
                             MIN_JAVA_MAJOR,
@@ -450,4 +463,29 @@ pub async fn start_game(
 
     emit_state(&app, "connected");
     Ok(())
+}
+
+/// Pobiera instalator MSI Temurin JDK 21 i uruchamia go z podwyższonymi uprawnieniami (UAC).
+#[tauri::command]
+pub async fn install_system_jdk_elevated() -> std::result::Result<String, String> {
+    let dir = std::env::temp_dir();
+    let msi = dir.join("createcrafts-temurin-21-jdk.msi");
+
+    let need_download = match std::fs::metadata(&msi) {
+        Ok(m) => m.len() < 1024 * 1024,
+        Err(_) => true,
+    };
+
+    if need_download {
+        download_windows_jdk_msi(&msi)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    launch_elevated_msi_installer(&msi).map_err(|e| e.to_string())?;
+
+    Ok(
+        "Uruchomiono instalator JDK (okno UAC). Po zakończeniu instalacji uruchom grę ponownie."
+            .into(),
+    )
 }

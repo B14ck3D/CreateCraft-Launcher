@@ -24,3 +24,5 @@ app-asar-new.txt
 .idea/
 .vscode/*
 !.vscode/extensions.json
+/target
+target/

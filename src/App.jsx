@@ -904,14 +904,14 @@ function LoginScreen({ onProfileLogin }) {
 function TitleBar() {
   return (
     <div
+      data-tauri-drag-region
       className="relative z-50 flex h-8 select-none items-center justify-between border-b border-brass-dim/30 bg-background/95 pl-4 pr-2 backdrop-blur-md"
-      style={{ WebkitAppRegion: 'drag' }}
     >
-      <div className="flex items-center gap-2 text-xs font-semibold tracking-wider text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs font-semibold tracking-wider text-muted-foreground" data-tauri-drag-region>
         <img src={pub('logomain.png')} alt="" className="h-5 w-5 shrink-0 object-contain" width={20} height={20} />
         <span>CREATECRAFTS LAUNCHER</span>
       </div>
-      <div className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' }}>
+      <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => window.electronAPI?.minimize()}

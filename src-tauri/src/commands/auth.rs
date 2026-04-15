@@ -8,10 +8,9 @@
 ///   4. Fetch Minecraft profile (UUID, name)
 ///   5. Save session via keyring
 use crate::error::{LauncherError, Result};
-use crate::session::store::{delete_session, load_session, save_session, PremiumSession};
+use crate::session::store::{delete_session, save_session, PremiumSession};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
 
 // ---------------------------------------------------------------------------
 // Returned profile type (matches what App.jsx expects)
@@ -62,6 +61,7 @@ fn extract_auth_code(url: &str) -> Option<String> {
 struct MsTokenResponse {
     access_token: String,
     refresh_token: String,
+    #[allow(dead_code)]
     expires_in: i64,
 }
 

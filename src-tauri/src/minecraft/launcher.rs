@@ -2,7 +2,7 @@
 /// Replaces minecraft-launcher-core's argument assembly and patched startMinecraft.
 use crate::error::{LauncherError, Result};
 use crate::minecraft::assets::{build_classpath, extract_natives, VersionJson};
-use crate::minecraft::neoforge::{neoforge_version_id, neoforge_version_json_path, MC_VERSION};
+use crate::minecraft::neoforge::{neoforge_version_id, neoforge_version_json_path};
 use crate::session::store::PremiumSession;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;

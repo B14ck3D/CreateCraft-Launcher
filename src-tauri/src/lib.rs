@@ -6,8 +6,6 @@ pub mod session;
 
 pub use error::{LauncherError, Result};
 
-use tauri::Manager;
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -28,10 +26,11 @@ pub fn run() {
             commands::shell::open_path_in_explorer,
             commands::shell::open_external_url,
         ])
-        .setup(|app| {
+        .setup(|_app| {
             #[cfg(debug_assertions)]
             {
-                let window = app.get_webview_window("main").unwrap();
+                use tauri::Manager;
+                let window = _app.get_webview_window("main").unwrap();
                 window.open_devtools();
             }
             Ok(())

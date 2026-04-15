@@ -297,7 +297,7 @@ pub async fn start_game(
 
         // Install NeoForge if needed
         emit_state(&app, "checking-files");
-        let nf_version = match ensure_neoforge(
+        let _nf_version = match ensure_neoforge(
             &java_path,
             &game_root,
             &|msg| {

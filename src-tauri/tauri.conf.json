@@ -44,9 +44,7 @@
     },
     "windows": {
       "nsis": {
-        "installMode": "currentUser",
-        "languages": ["Polish", "English-US"],
-        "displayLanguageSelector": false
+        "installMode": "currentUser"
       }
     }
   }

@@ -2,7 +2,7 @@
 /// Downloads the version manifest, version JSON, client.jar, libraries, and asset objects.
 /// All files are SHA1-verified before acceptance (mirrors MCLC internals).
 use crate::error::{LauncherError, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha1::{Digest, Sha1};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
@@ -262,13 +262,6 @@ pub async fn fetch_version_json(
     Ok(json)
 }
 
-/// Reads a version JSON that is already present on disk (no network call).
-fn load_version_json_from_disk(game_root: &Path, version_id: &str) -> Result<VersionJson> {
-    let dest = version_json_path(game_root, version_id);
-    let bytes = std::fs::read(&dest)?;
-    let json: VersionJson = serde_json::from_slice(&bytes)?;
-    Ok(json)
-}
 
 /// Resolves `inheritsFrom`: if the given version JSON inherits from a base version,
 /// downloads the base version JSON and merges libraries + asset info.

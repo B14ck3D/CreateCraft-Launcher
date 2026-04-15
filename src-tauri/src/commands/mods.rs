@@ -1,10 +1,9 @@
 /// Mod sync commands — replaces createcrafts-mods-info / force-mod-resync-* ipcMain handlers.
 use crate::crypto::key_embed::load_embedded_mods_api_key;
 use crate::crypto::manifest_sig::ModManifest;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
-use tokio::io::AsyncWriteExt;
 
 const FORCE_RESYNC_FLAG: &str = "createcrafts-force-mods-resync.flag";
 const MODS_API_BASE_DEFAULT: &str = "https://createcrafts.pl";

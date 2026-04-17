@@ -26,6 +26,8 @@ pub fn run() {
             // shell
             commands::shell::open_path_in_explorer,
             commands::shell::open_external_url,
+            // platform
+            commands::platform::platform_capabilities,
         ])
         .setup(|_app| {
             #[cfg(debug_assertions)]

@@ -5,9 +5,11 @@ use crate::commands::auth::ensure_session_valid;
 use crate::commands::mods::sync_mods;
 use crate::minecraft::assets::{build_mc_client, download_minecraft_files, fetch_version_json, resolve_full_version};
 use crate::minecraft::java::{
-    download_windows_jdk_msi, ensure_java_21, find_bundled_java, java_major_version,
-    launch_elevated_msi_installer, purge_portable_jdk, resolve_system_java, MIN_JAVA_MAJOR,
+    ensure_java_21, find_bundled_java, java_major_version, purge_portable_jdk, resolve_system_java,
+    MIN_JAVA_MAJOR,
 };
+#[cfg(target_os = "windows")]
+use crate::minecraft::java::{download_windows_jdk_msi, launch_elevated_msi_installer};
 use crate::minecraft::launcher::{build_launch_args, spawn_game, AuthInfo, LaunchConfig};
 use crate::minecraft::neoforge::{ensure_neoforge, neoforge_version_json_path, resolve_neoforge_version, MC_VERSION};
 use crate::session::store::load_session;
@@ -110,6 +112,14 @@ fn append_launch_log(log_path: &std::path::Path, msg: &str) {
     let line = format!("[{ts}] {}\n", msg.replace('\n', " "));
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path) {
         let _ = f.write_all(line.as_bytes());
+    }
+}
+
+fn jdk_help_hint() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "W ustawieniach możesz uruchomić instalator systemowy (UAC)."
+    } else {
+        "Launcher używa systemowej Javy albo portable JDK 21 (fallback)."
     }
 }
 
@@ -228,11 +238,12 @@ pub async fn start_game(
                             crash_and_return!(format!(
                                 "Znaleziono Java {}, a wymagane jest JDK {}.\n\
                                  Launcher próbował pobrać JDK do folderu:\n{}\n\
-                                 W ustawieniach możesz uruchomić instalator systemowy (UAC).\n\
+                                 {}\n\
                                  Pełny log: {}",
                                 sys_major.max(major).max(0),
                                 MIN_JAVA_MAJOR,
                                 runtime_root.display(),
+                                jdk_help_hint(),
                                 log_path.display()
                             ));
                         }
@@ -248,11 +259,12 @@ pub async fn start_game(
                         crash_and_return!(format!(
                             "Znaleziono Java {}, a wymagane jest JDK {}.\n\
                              Launcher próbował pobrać JDK do folderu:\n{}\n\
-                             W ustawieniach możesz uruchomić instalator systemowy (UAC).\n\
+                             {}\n\
                              Pełny log: {}",
                             sys_major,
                             MIN_JAVA_MAJOR,
                             runtime_root.display(),
+                            jdk_help_hint(),
                             log_path.display()
                         ));
                     }
@@ -468,24 +480,32 @@ pub async fn start_game(
 /// Pobiera instalator MSI Temurin JDK 21 i uruchamia go z podwyższonymi uprawnieniami (UAC).
 #[tauri::command]
 pub async fn install_system_jdk_elevated() -> std::result::Result<String, String> {
-    let dir = std::env::temp_dir();
-    let msi = dir.join("createcrafts-temurin-21-jdk.msi");
-
-    let need_download = match std::fs::metadata(&msi) {
-        Ok(m) => m.len() < 1024 * 1024,
-        Err(_) => true,
-    };
-
-    if need_download {
-        download_windows_jdk_msi(&msi)
-            .await
-            .map_err(|e| e.to_string())?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        return Err("Instalator systemowy JDK jest dostępny tylko na Windows.".into());
     }
 
-    launch_elevated_msi_installer(&msi).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "windows")]
+    {
+        let dir = std::env::temp_dir();
+        let msi = dir.join("createcrafts-temurin-21-jdk.msi");
 
-    Ok(
-        "Uruchomiono instalator JDK (okno UAC). Po zakończeniu instalacji uruchom grę ponownie."
-            .into(),
-    )
+        let need_download = match std::fs::metadata(&msi) {
+            Ok(m) => m.len() < 1024 * 1024,
+            Err(_) => true,
+        };
+
+        if need_download {
+            download_windows_jdk_msi(&msi)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+
+        launch_elevated_msi_installer(&msi).map_err(|e| e.to_string())?;
+
+        Ok(
+            "Uruchomiono instalator JDK (okno UAC). Po zakończeniu instalacji uruchom grę ponownie."
+                .into(),
+        )
+    }
 }

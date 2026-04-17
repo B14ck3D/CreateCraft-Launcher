@@ -1,5 +1,5 @@
 /// Mod sync commands — replaces createcrafts-mods-info / force-mod-resync-* ipcMain handlers.
-use crate::crypto::key_embed::load_embedded_mods_api_key;
+use crate::crypto::key_embed::resolve_mods_api_key;
 use crate::crypto::manifest_sig::ModManifest;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -8,6 +8,9 @@ use tauri::Manager;
 
 const FORCE_RESYNC_FLAG: &str = "createcrafts-force-mods-resync.flag";
 const MODS_API_BASE_DEFAULT: &str = "https://createcrafts.pl";
+
+const MODS_KEY_MISSING_HELP: &str =
+    "Brak klucza modów: umieść branding/launcher-mods-key.enc (npm run embed:mods-key) lub jawny branding/launcher-mods-key + prep:brand, albo export LAUNCHER_MODS_API_KEY=...";
 // TLS pin for createcrafts.pl (SHA-256 of the DER-encoded public key, reserved for future use)
 #[allow(dead_code)]
 const CREATECRAFTS_SPKI_PIN_B64: &str = "mXC/m3zXpYXTKFA4fKCGeYq0jpeXjpxc0WNHYGvv5n8=";
@@ -137,13 +140,7 @@ pub async fn sync_mods(
     on_log: &impl Fn(&str),
     on_progress: &impl Fn(u32),
 ) -> Result<(), String> {
-    let api_key = crate::crypto::key_embed::get_compile_time_mods_key()
-        .map(|s| s.to_string())
-        .or_else(|| load_embedded_mods_api_key(resource_dir))
-        .or_else(|| std::env::var("LAUNCHER_MODS_API_KEY").ok().filter(|k| k.len() >= 16))
-        .ok_or_else(|| {
-            "Brak klucza API modów. Launcher-mods-key.enc nie znaleziony w zasobach MSI.".to_string()
-        })?;
+    let api_key = resolve_mods_api_key(resource_dir).ok_or_else(|| MODS_KEY_MISSING_HELP.to_string())?;
 
     on_progress(12);
     let manifest = fetch_manifest(&api_key).await?;
@@ -282,16 +279,12 @@ pub async fn get_mods_info(
     std::fs::create_dir_all(&game_root).ok();
     let resource_dir = get_resource_dir(&app);
 
-    let api_key = match crate::crypto::key_embed::get_compile_time_mods_key()
-        .map(|s| s.to_string())
-        .or_else(|| load_embedded_mods_api_key(&resource_dir))
-        .or_else(|| std::env::var("LAUNCHER_MODS_API_KEY").ok().filter(|k| k.len() >= 16))
-    {
+    let api_key = match resolve_mods_api_key(&resource_dir) {
         Some(k) => k,
         None => {
             return Ok(serde_json::json!({
                 "ok": false,
-                "error": "Brak klucza API modów (launcher-mods-key.enc).",
+                "error": MODS_KEY_MISSING_HELP,
                 "gameRoot": game_root,
                 "modsDir": game_root.join("mods"),
                 "count": 0,

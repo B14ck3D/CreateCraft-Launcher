@@ -1,0 +1,15 @@
+---
+description: Agent zawsze uruchamia build po zmianach w kodzie
+alwaysApply: true
+---
+
+# Build po zmianach
+
+Po **każdej** istotnej zmianie w `src/`, `src-tauri/`, `package.json`, `vite.config.*`, `tauri.conf.json` lub skryptach build:
+
+1. Uruchom **`npm run build:vite`** (z katalogu głównego repo).
+2. Uruchom **`cargo build --release`** w katalogu **`src-tauri`** (albo `cargo check` gdy pełny release nie jest potrzebny do szybkiej iteracji).
+
+Przed traktowaniem zadania jako ukończonego, przy zmianach backendu/frontendu Tauri, preferuj **`npm run build`** (pełny pipeline: `prep:brand` + `tauri build` + rename artefaktów), jeśli środowisko ma zależności systemowe pod bundler — w przeciwnym razie co najmniej kroki 1–2.
+
+Nie kończ pracy wyłącznie na „powinno działać” bez zielonego wyniku kompilacji.

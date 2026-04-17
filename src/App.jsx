@@ -32,6 +32,10 @@ const PROFILES_LEGACY_KEY = 'supersmp_profiles_v1';
 const LAST_PROFILE_LEGACY_KEY = 'supersmp_last_profile_id';
 const LAUNCHER_SETTINGS_KEY = 'createcraft_launcher_settings_v1';
 
+/** Oficjalna strona pobierania Eclipse Temurin JDK 21 (fallback gdy auto-pobieranie w launcherze się nie uda). */
+const ADOPTIUM_JDK21_URL =
+  'https://adoptium.net/temurin/releases/?package=jdk&version=21';
+
 function clampRamGb(n) {
   const x = typeof n === 'number' ? n : parseInt(String(n), 10);
   if (!Number.isFinite(x)) return 6;
@@ -103,6 +107,7 @@ export default function App() {
   const [ramSize, setRamSize] = useState(() => loadLauncherSettings().ramGb);
   const [launchError, setLaunchError] = useState(null);
   const [jdkInstallNotice, setJdkInstallNotice] = useState(null);
+  const [supportsSystemJdkInstaller, setSupportsSystemJdkInstaller] = useState(false);
   const [forceModResyncPending, setForceModResyncPending] = useState(false);
   const [forceModResyncNotice, setForceModResyncNotice] = useState(null);
 
@@ -241,18 +246,41 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!window.electronAPI?.platformCapabilities) return;
+    let cancelled = false;
+    window.electronAPI.platformCapabilities().then((caps) => {
+      if (!cancelled) {
+        setSupportsSystemJdkInstaller(Boolean(caps?.supportsSystemJdkInstaller));
+      }
+    }).catch(() => {
+      if (!cancelled) setSupportsSystemJdkInstaller(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openAdoptiumJdkPage = useCallback(() => {
+    if (window.electronAPI?.openExternalUrl) {
+      void window.electronAPI.openExternalUrl(ADOPTIUM_JDK21_URL);
+    }
+  }, []);
+
   const runJdkElevatedInstall = useCallback(async () => {
-    if (!window.electronAPI?.installSystemJdkElevated) {
-      setJdkInstallNotice('Instalator JDK jest dostępny tylko w zbudowanej aplikacji.');
+    if (!window.electronAPI?.installSystemJdkElevated || !supportsSystemJdkInstaller) {
+      setJdkInstallNotice('Instalator systemowy JDK jest dostępny tylko na Windows.');
       return;
     }
     try {
       const m = await window.electronAPI.installSystemJdkElevated();
       setJdkInstallNotice(m);
     } catch (e) {
-      setJdkInstallNotice(String(e));
+      setJdkInstallNotice(
+        `${String(e)}\n\nJeśli MSI też się nie pobierze, zainstaluj JDK 21 ręcznie ze strony Temurin (przycisk poniżej).`
+      );
     }
-  }, []);
+  }, [supportsSystemJdkInstaller]);
 
   const handleConnectClick = () => {
     setLaunchError(null);
@@ -382,13 +410,22 @@ export default function App() {
                 {jdkInstallNotice}
               </p>
             )}
-            {launchError && /JDK|Java|java/.test(launchError) && window.electronAPI?.installSystemJdkElevated && (
+            {launchError && /JDK|Java|java/.test(launchError) && supportsSystemJdkInstaller && window.electronAPI?.installSystemJdkElevated && (
               <button
                 type="button"
                 onClick={() => void runJdkElevatedInstall()}
                 className="mb-3 w-full rounded-xl border border-primary/40 bg-primary/15 py-3 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
               >
                 Instalator JDK 21 (okno UAC)
+              </button>
+            )}
+            {launchError && /JDK|Java|java/.test(launchError) && window.electronAPI?.openExternalUrl && (
+              <button
+                type="button"
+                onClick={() => openAdoptiumJdkPage()}
+                className="mb-3 w-full rounded-xl border border-glass-border bg-card/60 py-3 text-sm font-bold text-foreground transition-colors hover:bg-muted/80"
+              >
+                Otwórz stronę Temurin JDK 21 (pobierz ręcznie)
               </button>
             )}
             <button
@@ -463,23 +500,34 @@ export default function App() {
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Java</p>
                   <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-                    Jeśli gra nie widzi JDK 21, możesz pobrać instalator Temurin i uruchomić go z uprawnieniami administratora
-                    (pojawi się okno UAC).
+                    Launcher automatycznie wykrywa systemową Javę i ma fallback do portable JDK 21.
+                    Dodatkowy instalator systemowy (UAC) jest dostępny tylko na Windows.
                   </p>
                   {jdkInstallNotice && (
                     <p className="mb-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
                       {jdkInstallNotice}
                     </p>
                   )}
-                  {window.electronAPI?.installSystemJdkElevated && (
-                    <button
-                      type="button"
-                      onClick={() => void runJdkElevatedInstall()}
-                      className="rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
-                    >
-                      Instalator JDK 21 (UAC)
-                    </button>
-                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {supportsSystemJdkInstaller && window.electronAPI?.installSystemJdkElevated && (
+                      <button
+                        type="button"
+                        onClick={() => void runJdkElevatedInstall()}
+                        className="rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
+                      >
+                        Instalator JDK 21 (UAC)
+                      </button>
+                    )}
+                    {window.electronAPI?.openExternalUrl && (
+                      <button
+                        type="button"
+                        onClick={() => openAdoptiumJdkPage()}
+                        className="rounded-xl border border-glass-border bg-muted/50 px-4 py-2.5 text-sm font-bold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        Strona Temurin JDK 21
+                      </button>
+                    )}
+                  </div>
                 </section>
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">

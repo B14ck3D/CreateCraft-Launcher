@@ -52,6 +52,7 @@ window.electronAPI = {
   onLauncherCrash: (callback) =>
     listen('launcher-crash', (event) => callback(event.payload)),
 
+  platformCapabilities: () => invoke('platform_capabilities'),
   installSystemJdkElevated: () => invoke('install_system_jdk_elevated'),
 
   // ----------------------------------------------------------------

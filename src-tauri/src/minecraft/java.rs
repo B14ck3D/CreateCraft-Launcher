@@ -20,23 +20,43 @@ fn java_exe_name() -> &'static str {
 }
 
 fn adoptium_download_url() -> String {
+    let arch = adoptium_arch_segment();
+    if cfg!(target_os = "windows") {
+        format!(
+            "https://api.adoptium.net/v3/binary/latest/{JAVA_MAJOR}/ga/windows/{arch}/jdk/hotspot/normal/eclipse?project=jdk"
+        )
+    } else if cfg!(target_os = "macos") {
+        format!(
+            "https://api.adoptium.net/v3/binary/latest/{JAVA_MAJOR}/ga/mac/{arch}/jdk/hotspot/normal/eclipse?project=jdk"
+        )
+    } else {
+        format!(
+            "https://api.adoptium.net/v3/binary/latest/{JAVA_MAJOR}/ga/linux/{arch}/jdk/hotspot/normal/eclipse?project=jdk"
+        )
+    }
+}
+
+fn adoptium_arch_segment() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x64"
+    }
+}
+
+/// OS + architecture query params for Adoptium `assets` API (fallback resolver).
+fn adoptium_assets_query_os_arch() -> (&'static str, &'static str) {
     let arch = if cfg!(target_arch = "aarch64") {
         "aarch64"
     } else {
         "x64"
     };
     if cfg!(target_os = "windows") {
-        format!(
-            "https://api.adoptium.net/v3/binary/latest/{JAVA_MAJOR}/ga/windows/{arch}/jdk/hotspot/normal/eclipse"
-        )
+        ("windows", arch)
     } else if cfg!(target_os = "macos") {
-        format!(
-            "https://api.adoptium.net/v3/binary/latest/{JAVA_MAJOR}/ga/mac/{arch}/jdk/hotspot/normal/eclipse"
-        )
+        ("mac", arch)
     } else {
-        format!(
-            "https://api.adoptium.net/v3/binary/latest/{JAVA_MAJOR}/ga/linux/{arch}/jdk/hotspot/normal/eclipse"
-        )
+        ("linux", arch)
     }
 }
 
@@ -310,17 +330,27 @@ async fn download_with_progress(
     dest: &Path,
     on_progress: &impl Fn(u32),
 ) -> Result<()> {
+    let api_fallback = adoptium_resolve_package_link_from_api().await.ok().flatten();
+    let mut candidates: Vec<String> = vec![url.to_string()];
+    if let Some(alt) = api_fallback {
+        if alt != url {
+            candidates.push(alt);
+        }
+    }
+
     let mut last_err: Option<LauncherError> = None;
     for attempt in 1u32..=3u32 {
-        match download_with_progress_once(url, dest, on_progress).await {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                last_err = Some(e);
-                let _ = tokio::fs::remove_file(dest.with_extension("part")).await;
-                if attempt < 3 {
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        for u in &candidates {
+            match download_with_progress_once(u, dest, on_progress).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    last_err = Some(e);
+                    let _ = tokio::fs::remove_file(dest.with_extension("part")).await;
                 }
             }
+        }
+        if attempt < 3 {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
     }
     Err(last_err.unwrap_or_else(|| LauncherError::Java("Pobieranie nie powiodło się.".into())))
@@ -334,7 +364,7 @@ async fn download_with_progress_once(
     use tokio::io::AsyncWriteExt;
 
     let client = build_http_client()?;
-    let mut response = follow_redirect(&client, url).await?;
+    let mut response = get_adoptium_binary_response(&client, url).await?;
 
     let total = response
         .headers()
@@ -348,7 +378,7 @@ async fn download_with_progress_once(
     let mut file = tokio::fs::File::create(&tmp).await?;
     let mut received: u64 = 0;
 
-    while let Some(chunk) = response.chunk().await? {
+    while let Some(chunk) = response.chunk().await.map_err(http_to_java_download_err)? {
         file.write_all(&chunk).await?;
         received += chunk.len() as u64;
         if total > 0 {
@@ -362,19 +392,129 @@ async fn download_with_progress_once(
     }
     file.flush().await?;
     drop(file);
+
+    verify_jdk_artifact(dest, &tmp)?;
     std::fs::rename(tmp, dest)?;
     Ok(())
 }
 
-/// Follow redirects (Adoptium → GitHub releases CDN).
-/// Validates that each hop goes to an allowed host.
-async fn follow_redirect(
+/// Map reqwest streaming/decompression errors to clearer Polish messages for JDK downloads.
+fn http_to_java_download_err(e: reqwest::Error) -> LauncherError {
+    let s = e.to_string();
+    if s.contains("decoding") || s.contains("Decompress") {
+        LauncherError::Java(format!(
+            "Pobieranie JDK: problem z odczytem odpowiedzi sieci (często CDN/kompresja). Spróbuj ponownie albo użyj instalatora z ustawień. Technicznie: {s}"
+        ))
+    } else {
+        LauncherError::Http(e)
+    }
+}
+
+/// Read Adoptium `assets` JSON and return a direct `package.link` for this platform (ZIP/MSI tarball).
+async fn adoptium_resolve_package_link_from_api() -> Result<Option<String>> {
+    let (os, arch) = adoptium_assets_query_os_arch();
+    let url = format!(
+        "https://api.adoptium.net/v3/assets/feature_releases/{JAVA_MAJOR}/ga?architecture={arch}&heap_size=normal&image_type=jdk&jvm_impl=hotspot&os={os}&vendor=eclipse&project=jdk"
+    );
+    validate_adoptium_host(&url)?;
+    let client = build_http_client()?;
+    let resp = client
+        .get(&url)
+        .header(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        )
+        .send()
+        .await
+        .map_err(LauncherError::Http)?;
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+    let v: serde_json::Value = resp.json().await.map_err(LauncherError::Http)?;
+    // API shape: [ { "binaries": [ { "package": { "link": "https://...zip" } } ] } ]
+    let link = v
+        .get(0)
+        .and_then(|rel| rel.get("binaries"))
+        .and_then(|b| b.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|bin| bin.get("package"))
+        .and_then(|p| p.get("link"))
+        .and_then(|l| l.as_str())
+        .map(std::string::ToString::to_string);
+    if let Some(ref u) = link {
+        validate_adoptium_host(u)?;
+    }
+    Ok(link)
+}
+
+fn verify_jdk_artifact(dest: &Path, tmp: &Path) -> Result<()> {
+    use std::io::Read;
+    let meta = std::fs::metadata(tmp)
+        .map_err(|e| LauncherError::Java(format!("Plik pobierania JDK: {e}")))?;
+    if meta.len() < 64 * 1024 {
+        return Err(LauncherError::Java(
+            "Pobrany plik jest zbyt mały — serwer mógł zwrócić błąd zamiast JDK. Sprawdź połączenie.".into(),
+        ));
+    }
+    let mut f = std::fs::File::open(tmp)?;
+    let mut buf = [0u8; 8];
+    let n = f.read(&mut buf)?;
+    if n < 4 {
+        return Err(LauncherError::Java("Nie udało się zweryfikować pobranego JDK.".into()));
+    }
+    let lower = dest.to_string_lossy().to_lowercase();
+    if lower.ends_with(".zip") {
+        if buf[0] != 0x50 || buf[1] != 0x4b {
+            return Err(LauncherError::Java(
+                "Pobrany plik nie jest poprawnym archiwum ZIP (JDK). Możliwa blokada sieci lub strona zamiast pliku — spróbuj instalatora MSI w ustawieniach.".into(),
+            ));
+        }
+    } else if lower.ends_with(".msi") {
+        let ole = buf[0] == 0xd0 && buf[1] == 0xcf && buf[2] == 0x11 && buf[3] == 0xe0;
+        if !ole && (buf[0] == b'<' || buf[0] == b'{') {
+            return Err(LauncherError::Java(
+                "Zamiast instalatora MSI serwer zwrócił stronę HTML/JSON — sprawdź połączenie lub pobierz JDK ręcznie z adoptium.net.".into(),
+            ));
+        }
+        if !ole {
+            return Err(LauncherError::Java(
+                "Pobrany plik nie wygląda na instalator MSI JDK.".into(),
+            ));
+        }
+    } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
+        if buf[0] != 0x1f || buf[1] != 0x8b {
+            return Err(LauncherError::Java(
+                "Pobrany plik nie jest poprawnym archiwum .tar.gz (JDK).".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// GET binary from Adoptium / GitHub CDN without transparent Content-Encoding (avoids reqwest decode errors on large JDK blobs).
+async fn get_adoptium_binary_response(
     client: &reqwest::Client,
     url: &str,
 ) -> Result<reqwest::Response> {
-    // reqwest with redirect policy already follows; we just validate the initial host.
     validate_adoptium_host(url)?;
-    let resp = client.get(url).send().await?;
+    static BINARY_UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 CreateCrafts-Launcher/2";
+    let resp = client
+        .get(url)
+        .header(
+            reqwest::header::ACCEPT_ENCODING,
+            reqwest::header::HeaderValue::from_static("identity"),
+        )
+        .header(
+            reqwest::header::USER_AGENT,
+            reqwest::header::HeaderValue::from_static(BINARY_UA),
+        )
+        .header(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("*/*"),
+        )
+        .send()
+        .await
+        .map_err(http_to_java_download_err)?;
     if !resp.status().is_success() {
         return Err(LauncherError::Java(format!(
             "Pobieranie JDK: HTTP {}",
@@ -402,8 +542,10 @@ fn validate_adoptium_host(url: &str) -> Result<()> {
 
 pub fn build_http_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
-        .user_agent("CreateCrafts-Launcher/2 (Bl4ck3d)")
-        .timeout(std::time::Duration::from_secs(180))
+        .user_agent("Mozilla/5.0 (compatible; CreateCrafts-Launcher/2; +https://createcrafts.pl)")
+        .connect_timeout(std::time::Duration::from_secs(45))
+        .timeout(std::time::Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::limited(32))
         .build()
         .map_err(LauncherError::Http)
 }
@@ -421,7 +563,7 @@ pub fn adoptium_windows_jdk_msi_url() -> String {
         "x64"
     };
     format!(
-        "https://api.adoptium.net/v3/installer/latest/{JAVA_MAJOR}/ga/windows/{arch}/jdk/hotspot/normal/eclipse"
+        "https://api.adoptium.net/v3/installer/latest/{JAVA_MAJOR}/ga/windows/{arch}/jdk/hotspot/normal/eclipse?project=jdk"
     )
 }
 

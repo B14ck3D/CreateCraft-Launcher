@@ -1,0 +1,23 @@
+pkgname=createcrafts-launcher-bin
+pkgver=__VERSION__
+pkgrel=1
+pkgdesc="CreateCrafts Launcher (Tauri) for Minecraft + NeoForge"
+arch=('x86_64' 'aarch64')
+url="https://createcrafts.pl"
+license=('MIT')
+depends=('gtk3' 'webkit2gtk-4.1' 'libsoup3')
+makedepends=('coreutils')
+provides=('createcrafts-launcher')
+conflicts=('createcrafts-launcher')
+source=("CreateCrafts-installer.AppImage::__APPIMAGE_URL__")
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/CreateCrafts-installer.AppImage" "${pkgdir}/opt/createcrafts/CreateCrafts.AppImage"
+  install -dm755 "${pkgdir}/usr/bin"
+  cat > "${pkgdir}/usr/bin/createcrafts-launcher" <<'EOF'
+#!/bin/sh
+exec /opt/createcrafts/CreateCrafts.AppImage "$@"
+EOF
+  chmod 755 "${pkgdir}/usr/bin/createcrafts-launcher"
+}

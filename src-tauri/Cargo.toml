@@ -24,7 +24,12 @@ tokio       = { version = "1", features = ["full"] }
 
 # HTTP — rustls-tls so we can supply a custom cert verifier for TLS pinning
 reqwest = { version = "0.12", default-features = false, features = [
-    "json", "stream", "rustls-tls", "gzip"
+    "json",
+    "stream",
+    "rustls-tls",
+    "gzip",
+    "brotli",
+    "deflate",
 ] }
 futures-util = "0.3"
 

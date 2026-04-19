@@ -9,8 +9,7 @@ use scrypt::Params as ScryptParams;
 const MAGIC: &[u8] = b"CCMK01";
 const MIN_KEY_LEN: usize = 16;
 
-/// Kolejność: `LAUNCHER_MODS_API_KEY` (nadpisanie) → `launcher-mods-key.enc` → jawny `launcher-mods-key` (tylko dev).
-/// Brak wbudowanego klucza w binarce — jedna ścieżka dystrybucji: plik `.enc` w zasobach (patrz tauri.conf → resources).
+// env → .enc → plain (dev); zasoby: tauri.conf
 pub fn resolve_mods_api_key(resource_dir: &Path) -> Option<String> {
     if let Ok(k) = std::env::var("LAUNCHER_MODS_API_KEY") {
         let t = k.trim().to_string();

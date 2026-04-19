@@ -1,15 +1,3 @@
-/// NeoForge setup.
-///
-/// Downloads the NeoForge installer JAR, extracts `version.json` (for early
-/// loading), then runs the installer with `--installClient <game_root>`.
-///
-/// The installer handles the full processor pipeline:
-///   - downloads Mojang mappings + neoform artifacts from Maven
-///   - patches the vanilla Minecraft client JAR
-///   - creates `libraries/net/neoforged/neoforge/<ver>/neoforge-<ver>-client.jar`
-///   - creates all other processor output JARs in `libraries/`
-///
-/// On subsequent launches the ready-marker file skips the install entirely.
 use crate::error::{LauncherError, Result};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -76,7 +64,6 @@ pub fn neoforge_version_json_path(game_root: &Path, version: &str) -> PathBuf {
         .join(format!("{vid}.json"))
 }
 
-/// The key processor output file — present only after a successful install run.
 fn neoforge_client_jar_path(game_root: &Path, version: &str) -> PathBuf {
     game_root
         .join("libraries")
@@ -92,9 +79,7 @@ pub fn is_neoforge_installed(game_root: &Path, version: &str) -> bool {
         && neoforge_client_jar_path(game_root, version).exists()
 }
 
-// ---------------------------------------------------------------------------
 // Installer JAR download
-// ---------------------------------------------------------------------------
 
 pub async fn ensure_neoforge_installer(
     game_root: &Path,
@@ -157,9 +142,7 @@ fn prune_old_installers(game_root: &Path, keep_version: &str) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // version.json extraction (for early load before install completes)
-// ---------------------------------------------------------------------------
 
 fn extract_neoforge_version_json(
     installer_jar: &Path,
@@ -207,12 +190,8 @@ fn extract_neoforge_version_json(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Running the installer
-// ---------------------------------------------------------------------------
 
-/// Create a minimal `launcher_profiles.json` that the NeoForge installer
-/// requires to be present in the game root directory.
 fn ensure_launcher_profiles(game_root: &Path) {
     let profiles_path = game_root.join("launcher_profiles.json");
     if !profiles_path.exists() {
@@ -289,15 +268,8 @@ async fn run_neoforge_installer(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // High-level entry point
-// ---------------------------------------------------------------------------
 
-/// Ensures NeoForge is fully installed:
-///   1. Downloads installer JAR (cached)
-///   2. Extracts version.json for early loading
-///   3. Runs the installer with `--installClient` (skipped if already done)
-///   4. Writes the ready-marker
 pub async fn ensure_neoforge(
     java_path: &Path,
     game_root: &Path,

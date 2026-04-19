@@ -1,13 +1,3 @@
-/// Encrypted file-based session storage.
-///
-/// Each session is stored as a binary file:
-///   %APPDATA%\CreateCrafts\sessions\session-{uuid}.bin
-///
-/// Encryption: AES-256-GCM with a key derived from machine identity
-/// (COMPUTERNAME + USERNAME → SHA-256).  The same session file
-/// cannot be decrypted on a different machine / user account.
-///
-/// File layout:  MAGIC(6) | NONCE(12) | CIPHERTEXT+TAG(n)
 use crate::error::{LauncherError, Result};
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -32,9 +22,7 @@ pub struct PremiumSession {
     pub client_token: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
 // Machine-specific encryption key
-// ---------------------------------------------------------------------------
 
 fn machine_key() -> [u8; 32] {
     let host = std::env::var("COMPUTERNAME")
@@ -86,9 +74,7 @@ fn decrypt_session_bytes(data: &[u8]) -> Option<Vec<u8>> {
     cipher.decrypt(nonce, ciphertext).ok()
 }
 
-// ---------------------------------------------------------------------------
 // Path helpers
-// ---------------------------------------------------------------------------
 
 fn sanitize_id(id: &str) -> String {
     id.chars()
@@ -108,9 +94,7 @@ fn session_path(profile_id: &str) -> PathBuf {
     sessions_dir().join(format!("session-{safe_id}.bin"))
 }
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 pub fn save_session(session: &PremiumSession) -> Result<()> {
     let dir = sessions_dir();
@@ -160,7 +144,6 @@ pub fn delete_session(profile_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Migrate a profile array that may contain inline token objects (from old localStorage).
 pub fn migrate_profiles_array(
     profiles: Vec<serde_json::Value>,
     last_profile_id: Option<String>,

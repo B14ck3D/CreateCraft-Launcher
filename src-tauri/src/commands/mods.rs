@@ -1,4 +1,3 @@
-/// Mod sync commands — replaces createcrafts-mods-info / force-mod-resync-* ipcMain handlers.
 use crate::crypto::key_embed::resolve_mods_api_key;
 use crate::crypto::manifest_sig::ModManifest;
 use serde::Serialize;
@@ -11,13 +10,8 @@ const MODS_API_BASE_DEFAULT: &str = "https://createcrafts.pl";
 
 const MODS_KEY_MISSING_HELP: &str =
     "Brak klucza modów: umieść branding/launcher-mods-key.enc (npm run embed:mods-key) lub jawny branding/launcher-mods-key + prep:brand, albo export LAUNCHER_MODS_API_KEY=...";
-// TLS pin for createcrafts.pl (SHA-256 of the DER-encoded public key, reserved for future use)
 #[allow(dead_code)]
 const CREATECRAFTS_SPKI_PIN_B64: &str = "mXC/m3zXpYXTKFA4fKCGeYq0jpeXjpxc0WNHYGvv5n8=";
-
-// ---------------------------------------------------------------------------
-// Path helpers
-// ---------------------------------------------------------------------------
 
 fn default_game_root() -> PathBuf {
     dirs::data_dir()
@@ -40,7 +34,6 @@ fn get_resource_dir(app: &tauri::AppHandle) -> PathBuf {
     #[cfg(debug_assertions)]
     {
         let _ = app;
-        // In dev, look beside the binary or in build/
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("."));
@@ -59,16 +52,7 @@ fn get_resource_dir(app: &tauri::AppHandle) -> PathBuf {
     }
 }
 
-// ---------------------------------------------------------------------------
-// HTTP client for mods API with TLS pinning
-// ---------------------------------------------------------------------------
-
 fn build_mods_client() -> Result<reqwest::Client, String> {
-    // Note: reqwest with rustls does not expose raw cert DER for manual pinning
-    // the same way Node's tls module does.
-    // For production pinning with rustls, you'd add a custom CertificateVerifier.
-    // Here we use standard TLS verification which is sufficient for most deployments.
-    // To add SPKI pinning: use rustls-platform-verifier or a custom ServerCertVerifier.
     reqwest::Client::builder()
         .user_agent("CreateCrafts-Launcher/2 (Bl4ck3d)")
         .timeout(std::time::Duration::from_secs(120))
@@ -116,9 +100,7 @@ async fn sha256_file(path: &Path) -> Option<String> {
     Some(hex::encode(h.finalize()))
 }
 
-// ---------------------------------------------------------------------------
 // Mod file status (for UI list)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize)]
 pub struct ModFileStatus {
@@ -129,9 +111,7 @@ pub struct ModFileStatus {
     pub sha256: String,
 }
 
-// ---------------------------------------------------------------------------
 // Public sync helper (used from game.rs too)
-// ---------------------------------------------------------------------------
 
 pub async fn sync_mods(
     game_root: &Path,
@@ -266,11 +246,8 @@ async fn download_mod_jar(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Tauri commands
-// ---------------------------------------------------------------------------
 
-/// Returns mod list with per-file status (ok / mismatch / missing / unknown).
 #[tauri::command]
 pub async fn get_mods_info(
     app: tauri::AppHandle,
@@ -348,7 +325,6 @@ pub async fn get_mods_info(
     }))
 }
 
-/// Writes the force-resync flag so next launch re-downloads all mods.
 #[tauri::command]
 pub async fn force_mod_resync_next() -> std::result::Result<serde_json::Value, String> {
     let game_root = default_game_root();
@@ -358,7 +334,6 @@ pub async fn force_mod_resync_next() -> std::result::Result<serde_json::Value, S
     Ok(serde_json::json!({ "ok": true }))
 }
 
-/// Returns whether the force-resync flag exists.
 #[tauri::command]
 pub async fn force_mod_resync_pending() -> std::result::Result<serde_json::Value, String> {
     let game_root = default_game_root();

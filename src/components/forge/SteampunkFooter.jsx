@@ -8,7 +8,7 @@ const links = [
 async function openInBrowser(url, e) {
   e?.preventDefault();
   e?.stopPropagation();
-  const open = window.electronAPI?.openExternalUrl;
+  const open = window.launcher?.openExternalUrl;
   if (open) {
     try {
       const r = await open(url);

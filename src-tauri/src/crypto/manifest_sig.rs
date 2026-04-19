@@ -1,5 +1,3 @@
-/// HMAC-SHA256 mod manifest signature verification.
-/// Mirrors launcherModsManifestSignature.js exactly.
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
@@ -21,7 +19,6 @@ pub struct ModManifest {
     pub mods: Vec<ModEntry>,
 }
 
-/// Builds the canonical payload string that must be HMAC'd.
 fn build_signature_payload(manifest: &ModManifest) -> crate::Result<String> {
     let generated = manifest.generated.clone().unwrap_or_default();
     let count_str = manifest.count.to_string();
@@ -42,8 +39,6 @@ fn build_signature_payload(manifest: &ModManifest) -> crate::Result<String> {
     Ok(parts.join("\n"))
 }
 
-/// Returns `true` when the manifest's `signature` field matches HMAC-SHA256 of the
-/// canonical payload using `secret` as the key.
 pub fn verify_manifest_signature(manifest: &ModManifest, secret: &str) -> bool {
     let sig = match &manifest.signature {
         Some(s) => s.to_lowercase(),

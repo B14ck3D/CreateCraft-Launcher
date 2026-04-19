@@ -1,27 +1,15 @@
-/// Microsoft OAuth + Minecraft auth commands.
-/// Replaces msmc npm package + profileStore.js + login-microsoft / profiles-* ipcMain handlers.
-///
-/// Flow:
-///   1. Open Tauri WebviewWindow with MS OAuth URL
-///   2. Intercept navigation to get auth code
-///   3. Exchange auth code → MS token → Xbox → XSTS → Minecraft token
-///   4. Fetch Minecraft profile (UUID, name)
-///   5. Save session via keyring
 use crate::error::{LauncherError, Result};
 use crate::session::store::{delete_session, save_session, PremiumSession};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// Only one Microsoft login flow at a time (avoids overlapping WebviewWindows).
 static MS_LOGIN_BUSY: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
 fn ms_login_lock() -> &'static tokio::sync::Mutex<()> {
     MS_LOGIN_BUSY.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-// ---------------------------------------------------------------------------
 // Returned profile type (matches what App.jsx expects)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProfileResult {
@@ -32,10 +20,8 @@ pub struct ProfileResult {
     pub avatar: String,
 }
 
-// ---------------------------------------------------------------------------
 // MS OAuth constants
 // This uses the public Xbox Live / Minecraft launcher client ID (same as MCLC/msmc).
-// ---------------------------------------------------------------------------
 
 const MS_CLIENT_ID: &str = "00000000402b5328";
 const MS_REDIRECT_URI: &str = "https://login.live.com/oauth20_desktop.srf";
@@ -86,9 +72,7 @@ fn oauth_error_user_message(error: &str, desc: Option<&str>) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Token exchange helpers
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 struct MsTokenResponse {
@@ -327,9 +311,7 @@ fn mineatar_url(uuid: &str) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Full MS auth flow: open window → get code → exchange → profile
-// ---------------------------------------------------------------------------
 
 async fn do_ms_auth(app: &tauri::AppHandle) -> Result<PremiumSession> {
     let auth_url = ms_auth_url();
@@ -437,7 +419,6 @@ fn format_uuid(hex_id: &str) -> String {
     }
 }
 
-/// Validates + refreshes the session if the access token has expired.
 pub async fn ensure_session_valid(session: &mut PremiumSession) -> Result<()> {
     let now = chrono::Utc::now().timestamp();
     // Refresh if token expires within 5 minutes
@@ -462,11 +443,8 @@ pub async fn ensure_session_valid(session: &mut PremiumSession) -> Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Tauri commands
-// ---------------------------------------------------------------------------
 
-/// Opens the Microsoft login window, exchanges tokens, saves session, returns profile.
 #[tauri::command]
 pub async fn login_microsoft(app: tauri::AppHandle) -> std::result::Result<ProfileResult, String> {
     let _busy = match ms_login_lock().try_lock() {
@@ -491,7 +469,6 @@ pub async fn login_microsoft(app: tauri::AppHandle) -> std::result::Result<Profi
     })
 }
 
-/// Deletes the stored session for a profile.
 #[tauri::command]
 pub async fn delete_premium_session(
     profile_id: String,
@@ -500,7 +477,6 @@ pub async fn delete_premium_session(
     Ok(serde_json::json!({ "ok": true }))
 }
 
-/// Migrates inline token objects from the old localStorage profile array to keyring.
 #[tauri::command]
 pub async fn migrate_profiles_from_localstorage(
     raw_json: Option<String>,
@@ -524,7 +500,6 @@ pub async fn migrate_profiles_from_localstorage(
     }))
 }
 
-/// Returns a Mineatar face URL + normalised UUID for a player name or UUID.
 #[tauri::command]
 pub async fn mineatar_face_url(
     offline_name: Option<String>,

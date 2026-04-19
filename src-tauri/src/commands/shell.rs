@@ -1,4 +1,3 @@
-/// Shell utilities — replaces open-path-in-explorer / open-external-url ipcMain handlers.
 use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]

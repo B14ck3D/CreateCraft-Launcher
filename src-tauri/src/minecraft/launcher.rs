@@ -1,5 +1,3 @@
-/// JVM argument builder + game process spawner.
-/// Replaces minecraft-launcher-core's argument assembly and patched startMinecraft.
 use crate::error::{LauncherError, Result};
 use crate::minecraft::assets::{build_classpath, extract_natives, VersionJson};
 use crate::minecraft::neoforge::{neoforge_version_id, neoforge_version_json_path};
@@ -9,9 +7,7 @@ use std::process::Stdio;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
-// ---------------------------------------------------------------------------
 // Auth data passed from start_game
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct AuthInfo {
@@ -45,7 +41,6 @@ impl AuthInfo {
     }
 }
 
-/// Offline UUID — matches Java's OfflinePlayer UUID derivation (MD5, variant/version bits).
 fn offline_player_uuid(player_name: &str) -> String {
     use md5::Digest;
     let input = format!("OfflinePlayer:{player_name}");
@@ -64,9 +59,7 @@ fn offline_player_uuid(player_name: &str) -> String {
     )
 }
 
-// ---------------------------------------------------------------------------
 // JVM performance / OS args (mirrors buildMclcJvmAugments in main.js)
-// ---------------------------------------------------------------------------
 
 fn jvm_performance_args() -> Vec<String> {
     let cpus = num_cpus::get();
@@ -114,9 +107,7 @@ fn server_connect_args(host: &str, port: &str) -> Vec<String> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Version JSON merging (for NeoForge that inheritsFrom base MC)
-// ---------------------------------------------------------------------------
 
 fn merge_version_jsons(
     base: &mut VersionJson,
@@ -137,7 +128,6 @@ fn merge_version_jsons(
     }
 }
 
-/// Loads and merges the NeoForge version JSON with the base MC version JSON.
 pub fn load_neoforge_version(
     game_root: &Path,
     neoforge_version: &str,
@@ -170,9 +160,7 @@ pub fn load_neoforge_version(
     Ok(nf)
 }
 
-// ---------------------------------------------------------------------------
 // Argument substitution
-// ---------------------------------------------------------------------------
 
 fn substitute_arg(
     arg: &str,
@@ -275,9 +263,7 @@ fn current_os_name() -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Full JVM argument assembly
-// ---------------------------------------------------------------------------
 
 pub struct LaunchConfig {
     pub java_path: PathBuf,
@@ -383,12 +369,8 @@ pub async fn build_launch_args(
     Ok(args)
 }
 
-// ---------------------------------------------------------------------------
 // Game process spawner
-// ---------------------------------------------------------------------------
 
-/// Spawns the game JVM and streams stdout/stderr lines via `on_log`.
-/// Returns when the process exits; calls `on_close(exit_code)`.
 pub async fn spawn_game(
     java_path: &Path,
     args: &[String],

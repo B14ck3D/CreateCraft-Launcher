@@ -1,6 +1,3 @@
-/// Minecraft asset + library downloader.
-/// Downloads the version manifest, version JSON, client.jar, libraries, and asset objects.
-/// All files are SHA1-verified before acceptance (mirrors MCLC internals).
 use crate::error::{LauncherError, Result};
 use serde::Deserialize;
 use sha1::{Digest, Sha1};
@@ -10,9 +7,7 @@ use tokio::io::AsyncWriteExt;
 const VERSION_MANIFEST: &str =
     "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
-// ---------------------------------------------------------------------------
 // Mojang API types
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 struct VersionManifest {
@@ -98,12 +93,10 @@ pub struct VersionJson {
     pub id: String,
     #[serde(default)]
     pub r#type: String,
-    /// Absent in NeoForge version JSONs (they use inheritsFrom → base vanilla has it).
     #[serde(default)]
     pub downloads: Option<VersionDownloads>,
     #[serde(default)]
     pub libraries: Vec<Library>,
-    /// Absent in NeoForge version JSONs.
     #[serde(rename = "assetIndex", default)]
     pub asset_index: Option<AssetIndexMeta>,
     #[serde(default)]
@@ -113,14 +106,11 @@ pub struct VersionJson {
     pub arguments: Option<Arguments>,
     #[serde(rename = "minecraftArguments")]
     pub minecraft_arguments: Option<String>,
-    /// For NeoForge version JSONs that inherit from a base version
     #[serde(rename = "inheritsFrom")]
     pub inherits_from: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
 // SHA1 verification
-// ---------------------------------------------------------------------------
 
 fn sha1_hex_of_file(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path)?;
@@ -135,9 +125,7 @@ fn sha1_valid(path: &Path, expected: &str) -> bool {
         .unwrap_or(false)
 }
 
-// ---------------------------------------------------------------------------
 // HTTP helpers
-// ---------------------------------------------------------------------------
 
 pub fn build_mc_client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
@@ -213,11 +201,8 @@ async fn download_file_if_needed(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
-/// Returns the path to the version JSON for `version_id` inside `game_root`.
 pub fn version_json_path(game_root: &Path, version_id: &str) -> PathBuf {
     game_root
         .join("versions")
@@ -225,7 +210,6 @@ pub fn version_json_path(game_root: &Path, version_id: &str) -> PathBuf {
         .join(format!("{version_id}.json"))
 }
 
-/// Returns the path to the client.jar for `version_id`.
 pub fn client_jar_path(game_root: &Path, version_id: &str) -> PathBuf {
     game_root
         .join("versions")
@@ -233,7 +217,6 @@ pub fn client_jar_path(game_root: &Path, version_id: &str) -> PathBuf {
         .join(format!("{version_id}.jar"))
 }
 
-/// Downloads + caches the Mojang version JSON.
 pub async fn fetch_version_json(
     client: &reqwest::Client,
     game_root: &Path,
@@ -263,9 +246,6 @@ pub async fn fetch_version_json(
 }
 
 
-/// Resolves `inheritsFrom`: if the given version JSON inherits from a base version,
-/// downloads the base version JSON and merges libraries + asset info.
-/// The child (NeoForge) entries take precedence for metadata fields.
 pub async fn resolve_full_version(
     client: &reqwest::Client,
     game_root: &Path,
@@ -312,8 +292,6 @@ pub async fn resolve_full_version(
     Ok(merged)
 }
 
-/// Downloads the Minecraft client.jar and all libraries.
-/// `on_progress` receives values 0-100.
 pub async fn download_minecraft_files(
     client: &reqwest::Client,
     game_root: &Path,
@@ -450,9 +428,7 @@ async fn download_asset_objects(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
 // Library filtering
-// ---------------------------------------------------------------------------
 
 fn current_os_name() -> String {
     if cfg!(target_os = "windows") {
@@ -489,9 +465,6 @@ fn library_applies(lib: &Library, os_name: &str) -> bool {
     allow
 }
 
-/// Builds the classpath string from a version JSON's library list + client.jar.
-/// Deduplicates entries by resolved path — first occurrence wins (NeoForge libs
-/// are prepended before vanilla, so NeoForge versions take precedence).
 pub fn build_classpath(game_root: &Path, version: &VersionJson) -> String {
     let sep = if cfg!(target_os = "windows") { ";" } else { ":" };
     let libs_dir = game_root.join("libraries");
@@ -525,7 +498,6 @@ pub fn build_classpath(game_root: &Path, version: &VersionJson) -> String {
     entries.join(sep)
 }
 
-/// Extracts native libraries into `natives_dir`.
 pub fn extract_natives(game_root: &Path, version: &VersionJson, natives_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(natives_dir)?;
     let libs_dir = game_root.join("libraries");

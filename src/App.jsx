@@ -23,7 +23,6 @@ import LauncherMainPanel from './components/forge/LauncherMainPanel.jsx';
 import GearDecoration from './components/forge/GearDecoration.jsx';
 import CogwheelFrame from './components/forge/CogwheelFrame.jsx';
 
-// React root — assety z `public/` (Vite base).
 const pub = (file) => `${import.meta.env.BASE_URL}${file}`;
 
 const PROFILES_STORAGE_KEY = 'createcraft_profiles_v1';
@@ -32,7 +31,6 @@ const PROFILES_LEGACY_KEY = 'supersmp_profiles_v1';
 const LAST_PROFILE_LEGACY_KEY = 'supersmp_last_profile_id';
 const LAUNCHER_SETTINGS_KEY = 'createcraft_launcher_settings_v1';
 
-/** Oficjalna strona pobierania Eclipse Temurin JDK 21 (fallback gdy auto-pobieranie w launcherze się nie uda). */
 const ADOPTIUM_JDK21_URL =
   'https://adoptium.net/temurin/releases/?package=jdk&version=21';
 
@@ -106,12 +104,9 @@ export default function App() {
   const [progress, setProgress] = useState(0);
   const [ramSize, setRamSize] = useState(() => loadLauncherSettings().ramGb);
   const [launchError, setLaunchError] = useState(null);
-  const [jdkInstallNotice, setJdkInstallNotice] = useState(null);
-  const [supportsSystemJdkInstaller, setSupportsSystemJdkInstaller] = useState(false);
   const [forceModResyncPending, setForceModResyncPending] = useState(false);
   const [forceModResyncNotice, setForceModResyncNotice] = useState(null);
 
-  // Blokada odświeżania SPA (F5 / Ctrl+R) — osobne okno logowania MS nie używa tego bundla.
   useEffect(() => {
     const blockReloadShortcuts = (e) => {
       const t = e.target;
@@ -151,10 +146,10 @@ export default function App() {
         localStorage.removeItem(LAST_PROFILE_LEGACY_KEY);
       }
       const rawProfiles = localStorage.getItem(PROFILES_STORAGE_KEY);
-      if (rawProfiles && window.electronAPI?.migrateProfilesFromLocalStorage) {
+      if (rawProfiles && window.launcher?.migrateProfilesFromLocalStorage) {
         try {
           const lastIdBefore = localStorage.getItem(LAST_PROFILE_STORAGE_KEY);
-          const r = await window.electronAPI.migrateProfilesFromLocalStorage({
+          const r = await window.launcher.migrateProfilesFromLocalStorage({
             rawJson: rawProfiles,
             lastProfileId: lastIdBefore,
           });
@@ -186,9 +181,9 @@ export default function App() {
 
   useEffect(() => {
     if (!introFinished) return undefined;
-    if (!window.electronAPI?.createcraftsForceModResyncPending) return undefined;
+    if (!window.launcher?.createcraftsForceModResyncPending) return undefined;
     let cancelled = false;
-    window.electronAPI.createcraftsForceModResyncPending().then((r) => {
+    window.launcher.createcraftsForceModResyncPending().then((r) => {
       if (!cancelled) setForceModResyncPending(Boolean(r?.pending));
     });
     return () => {
@@ -197,13 +192,13 @@ export default function App() {
   }, [introFinished, activeTab]);
 
   useEffect(() => {
-    if (!window.electronAPI) return undefined;
+    if (!window.launcher) return undefined;
     let cancelled = false;
     const unsubs = [];
 
     void (async () => {
       try {
-        const u1 = await window.electronAPI.onStateChange((newState) => {
+        const u1 = await window.launcher.onStateChange((newState) => {
           if (!cancelled) setConnectionState(newState);
         });
         if (cancelled) {
@@ -212,7 +207,7 @@ export default function App() {
         }
         unsubs.push(u1);
 
-        const u2 = await window.electronAPI.onProgress((newProgress) => {
+        const u2 = await window.launcher.onProgress((newProgress) => {
           if (!cancelled) setProgress(newProgress);
         });
         if (cancelled) {
@@ -221,8 +216,8 @@ export default function App() {
         }
         unsubs.push(u2);
 
-        if (window.electronAPI.onLauncherCrash) {
-          const u3 = await window.electronAPI.onLauncherCrash((msg) => {
+        if (window.launcher.onLauncherCrash) {
+          const u3 = await window.launcher.onLauncherCrash((msg) => {
             if (!cancelled) {
               setLaunchError(String(msg || 'Nieznany błąd uruchomienia.'));
             }
@@ -246,54 +241,23 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!window.electronAPI?.platformCapabilities) return;
-    let cancelled = false;
-    window.electronAPI.platformCapabilities().then((caps) => {
-      if (!cancelled) {
-        setSupportsSystemJdkInstaller(Boolean(caps?.supportsSystemJdkInstaller));
-      }
-    }).catch(() => {
-      if (!cancelled) setSupportsSystemJdkInstaller(false);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const openAdoptiumJdkPage = useCallback(() => {
-    if (window.electronAPI?.openExternalUrl) {
-      void window.electronAPI.openExternalUrl(ADOPTIUM_JDK21_URL);
+    if (window.launcher?.openExternalUrl) {
+      void window.launcher.openExternalUrl(ADOPTIUM_JDK21_URL);
     }
   }, []);
-
-  const runJdkElevatedInstall = useCallback(async () => {
-    if (!window.electronAPI?.installSystemJdkElevated || !supportsSystemJdkInstaller) {
-      setJdkInstallNotice('Instalator systemowy JDK jest dostępny tylko na Windows.');
-      return;
-    }
-    try {
-      const m = await window.electronAPI.installSystemJdkElevated();
-      setJdkInstallNotice(m);
-    } catch (e) {
-      setJdkInstallNotice(
-        `${String(e)}\n\nJeśli MSI też się nie pobierze, zainstaluj JDK 21 ręcznie ze strony Temurin (przycisk poniżej).`
-      );
-    }
-  }, [supportsSystemJdkInstaller]);
 
   const handleConnectClick = () => {
     setLaunchError(null);
-    setJdkInstallNotice(null);
-    if (window.electronAPI) {
+    if (window.launcher) {
       if (user.type === 'offline') {
-        window.electronAPI.startGame({
+        window.launcher.startGame({
           type: 'offline',
           offlineName: user.name,
           ramSize: `${ramSize}G`,
         });
       } else {
-        window.electronAPI.startGame({
+        window.launcher.startGame({
           type: 'premium',
           profileId: user.id,
           ramSize: `${ramSize}G`,
@@ -306,11 +270,11 @@ export default function App() {
 
   const handleScheduleForceModResync = async () => {
     setForceModResyncNotice(null);
-    if (!window.electronAPI?.createcraftsForceModResyncNext) {
-      setForceModResyncNotice('Dostępne w aplikacji Electron po zbudowaniu.');
+    if (!window.launcher?.createcraftsForceModResyncNext) {
+      setForceModResyncNotice('Dostępne po zbudowaniu aplikacji (Tauri).');
       return;
     }
-    const r = await window.electronAPI.createcraftsForceModResyncNext();
+    const r = await window.launcher.createcraftsForceModResyncNext();
     if (r?.ok) {
       setForceModResyncPending(true);
       setForceModResyncNotice('Przy następnym uruchomieniu gry wszystkie mody z listy zostaną pobrane ponownie.');
@@ -351,8 +315,8 @@ export default function App() {
         return 'Weryfikacja konta i sesji...';
       case 'checking-files':
         return 'Sprawdzanie plików modpacku (serwer CreateCrafts)...';
-      case 'java-download':
-        return 'Pobieranie środowiska Java (JDK 21, Temurin)...';
+      case 'checking-java':
+        return 'Sprawdzanie Java (wymagane JDK 21)...';
       case 'mods-sync':
         return `Pobieranie / aktualizacja modów (NeoForge ${gamePack.neoForgeInstallerVersion})…`;
       case 'downloading':
@@ -405,34 +369,19 @@ export default function App() {
             <pre className="mb-4 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-glass-border bg-background/80 p-3 font-mono text-xs text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {launchError}
             </pre>
-            {jdkInstallNotice && (
-              <p className="mb-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
-                {jdkInstallNotice}
-              </p>
-            )}
-            {launchError && /JDK|Java|java/.test(launchError) && supportsSystemJdkInstaller && window.electronAPI?.installSystemJdkElevated && (
-              <button
-                type="button"
-                onClick={() => void runJdkElevatedInstall()}
-                className="mb-3 w-full rounded-xl border border-primary/40 bg-primary/15 py-3 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
-              >
-                Instalator JDK 21 (okno UAC)
-              </button>
-            )}
-            {launchError && /JDK|Java|java/.test(launchError) && window.electronAPI?.openExternalUrl && (
+            {launchError && /JDK|Java|java/.test(launchError) && window.launcher?.openExternalUrl && (
               <button
                 type="button"
                 onClick={() => openAdoptiumJdkPage()}
                 className="mb-3 w-full rounded-xl border border-glass-border bg-card/60 py-3 text-sm font-bold text-foreground transition-colors hover:bg-muted/80"
               >
-                Otwórz stronę Temurin JDK 21 (pobierz ręcznie)
+                Pobierz JDK 21 (Temurin)
               </button>
             )}
             <button
               type="button"
               onClick={() => {
                 setLaunchError(null);
-                setJdkInstallNotice(null);
               }}
               className="w-full rounded-xl border border-glass-border bg-muted py-3 text-sm font-bold text-foreground transition-colors hover:bg-muted/80"
             >
@@ -500,31 +449,16 @@ export default function App() {
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Java</p>
                   <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-                    Launcher automatycznie wykrywa systemową Javę i ma fallback do portable JDK 21.
-                    Dodatkowy instalator systemowy (UAC) jest dostępny tylko na Windows.
+                    Wymagane JDK 21 — launcher używa Javy ze środowiska (np. PATH, JAVA_HOME).
                   </p>
-                  {jdkInstallNotice && (
-                    <p className="mb-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
-                      {jdkInstallNotice}
-                    </p>
-                  )}
                   <div className="flex flex-wrap gap-2">
-                    {supportsSystemJdkInstaller && window.electronAPI?.installSystemJdkElevated && (
-                      <button
-                        type="button"
-                        onClick={() => void runJdkElevatedInstall()}
-                        className="rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
-                      >
-                        Instalator JDK 21 (UAC)
-                      </button>
-                    )}
-                    {window.electronAPI?.openExternalUrl && (
+                    {window.launcher?.openExternalUrl && (
                       <button
                         type="button"
                         onClick={() => openAdoptiumJdkPage()}
                         className="rounded-xl border border-glass-border bg-muted/50 px-4 py-2.5 text-sm font-bold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       >
-                        Strona Temurin JDK 21
+                        Pobierz JDK 21 (Temurin)
                       </button>
                     )}
                   </div>
@@ -663,7 +597,7 @@ function ModsListPanel() {
   const [err, setErr] = useState(null);
 
   const load = useCallback(async () => {
-    if (!window.electronAPI?.createcraftsModsInfo) {
+    if (!window.launcher?.createcraftsModsInfo) {
       setErr(null);
       setLoading(false);
       setInfo({ modsDir: '', gameRoot: '', count: 0, mods: [], mock: true });
@@ -672,7 +606,7 @@ function ModsListPanel() {
     setLoading(true);
     setErr(null);
     try {
-      const data = await window.electronAPI.createcraftsModsInfo();
+      const data = await window.launcher.createcraftsModsInfo();
       if (data && data.ok === false) {
         setErr(data.error || 'Błąd listy modów');
         setInfo({
@@ -699,14 +633,14 @@ function ModsListPanel() {
   }, [load]);
 
   const openModsDir = () => {
-    if (info?.modsDir && window.electronAPI?.openPathInExplorer) {
-      window.electronAPI.openPathInExplorer(info.modsDir);
+    if (info?.modsDir && window.launcher?.openPathInExplorer) {
+      window.launcher.openPathInExplorer(info.modsDir);
     }
   };
 
   const openGameRoot = () => {
-    if (info?.gameRoot && window.electronAPI?.openPathInExplorer) {
-      window.electronAPI.openPathInExplorer(info.gameRoot);
+    if (info?.gameRoot && window.launcher?.openPathInExplorer) {
+      window.launcher.openPathInExplorer(info.gameRoot);
     }
   };
 
@@ -764,7 +698,7 @@ function ModsListPanel() {
       )}
 
       {info?.mock && (
-        <p className="text-sm text-muted-foreground">Podgląd w przeglądarce — pełna lista w aplikacji Electron.</p>
+        <p className="text-sm text-muted-foreground">Podgląd w przeglądarce — pełna lista w zbudowanej aplikacji.</p>
       )}
 
       {!loading && !err && info?.mods?.length === 0 && !info?.mock && (
@@ -855,9 +789,9 @@ function LoginScreen({ onProfileLogin }) {
     void (async () => {
       const list = loadStoredProfiles();
       const victim = list.find((p) => p.id === id);
-      if (victim?.type === 'premium' && window.electronAPI?.deletePremiumSession) {
+      if (victim?.type === 'premium' && window.launcher?.deletePremiumSession) {
         try {
-          await window.electronAPI.deletePremiumSession(id);
+          await window.launcher.deletePremiumSession(id);
         } catch {}
       }
       const next = list.filter((p) => p.id !== id);
@@ -882,8 +816,8 @@ function LoginScreen({ onProfileLogin }) {
     setLoginError(null);
     setLoading(true);
     try {
-      if (window.electronAPI) {
-        const data = await window.electronAPI.loginMicrosoft();
+      if (window.launcher) {
+        const data = await window.launcher.loginMicrosoft();
         finishLogin({
           ...data,
           label: data.name,
@@ -916,8 +850,8 @@ function LoginScreen({ onProfileLogin }) {
     try {
       let avatar = '';
       let id = crypto.randomUUID();
-      if (window.electronAPI?.mineatarFaceUrl) {
-        const r = await window.electronAPI.mineatarFaceUrl({ offlineName: nick });
+      if (window.launcher?.mineatarFaceUrl) {
+        const r = await window.launcher.mineatarFaceUrl({ offlineName: nick });
         if (r?.url) avatar = r.url;
         if (r?.playerUuid) id = r.playerUuid;
       }
@@ -1094,21 +1028,21 @@ function TitleBar() {
       <div className="flex items-center gap-1">
         <button
           type="button"
-          onClick={() => window.electronAPI?.minimize()}
+          onClick={() => window.launcher?.minimize()}
           className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <Minus size={14} />
         </button>
         <button
           type="button"
-          onClick={() => window.electronAPI?.maximize()}
+          onClick={() => window.launcher?.maximize()}
           className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <Square size={12} />
         </button>
         <button
           type="button"
-          onClick={() => window.electronAPI?.close()}
+          onClick={() => window.launcher?.close()}
           className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
         >
           <X size={14} />

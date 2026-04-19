@@ -45,10 +45,7 @@ hex     = "0.4"
 base64  = "0.22"
 subtle  = "2"
 
-# Archives (JDK extraction)
 zip     = { version = "2", default-features = false, features = ["deflate"] }
-flate2  = "1"
-tar     = "0.4"
 
 # Utilities
 chrono    = { version = "0.4", features = ["serde"] }

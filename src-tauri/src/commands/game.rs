@@ -1,38 +1,22 @@
-/// start_game command — full pipeline, emits launcher-state / launcher-progress / launcher-log / launcher-crash.
-/// Replaces the `ipcMain.on('start-game', ...)` handler in main.js.
 use tauri::Emitter;
 use crate::commands::auth::ensure_session_valid;
 use crate::commands::mods::sync_mods;
 use crate::minecraft::assets::{build_mc_client, download_minecraft_files, fetch_version_json, resolve_full_version};
-use crate::minecraft::java::{
-    ensure_java_21, find_bundled_java, java_major_version, purge_portable_jdk, resolve_system_java,
-    MIN_JAVA_MAJOR,
-};
-#[cfg(target_os = "windows")]
-use crate::minecraft::java::{download_windows_jdk_msi, launch_elevated_msi_installer};
+use crate::minecraft::java::{resolve_system_java, JDK21_INFO_URL, MIN_JAVA_MAJOR};
 use crate::minecraft::launcher::{build_launch_args, spawn_game, AuthInfo, LaunchConfig};
 use crate::minecraft::neoforge::{ensure_neoforge, neoforge_version_json_path, resolve_neoforge_version, MC_VERSION};
 use crate::session::store::load_session;
 use serde::Deserialize;
 use std::path::PathBuf;
-use tauri::Manager;
-
-// ---------------------------------------------------------------------------
-// Payload (matches what App.jsx sends)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartGamePayload {
-    pub r#type: String,           // "offline" | "premium"
+    pub r#type: String,
     pub offline_name: Option<String>,
     pub profile_id: Option<String>,
-    pub ram_size: Option<String>,  // e.g. "6G"
+    pub ram_size: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Path helpers (duplicated from mods.rs to avoid circular dependency)
-// ---------------------------------------------------------------------------
 
 fn default_game_root() -> PathBuf {
     dirs::data_dir()
@@ -62,14 +46,6 @@ fn get_resource_dir(app: &tauri::AppHandle) -> PathBuf {
     }
 }
 
-fn bundled_java_runtime_root(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .app_data_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("runtime")
-        .join(format!("java{}", crate::minecraft::java::JAVA_MAJOR))
-}
-
 fn get_servers_dat_template(resource_dir: &std::path::Path) -> Option<PathBuf> {
     let p = resource_dir.join("servers.dat");
     if p.exists() { Some(p) } else { None }
@@ -81,10 +57,6 @@ fn copy_servers_dat(game_root: &std::path::Path, resource_dir: &std::path::Path)
         let _ = std::fs::copy(src, dest);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Emit helpers
-// ---------------------------------------------------------------------------
 
 fn emit_state(app: &tauri::AppHandle, state: &str) {
     let _ = app.emit("launcher-state", state);
@@ -102,10 +74,6 @@ fn emit_crash(app: &tauri::AppHandle, msg: &str) {
     let _ = app.emit("launcher-crash", msg);
 }
 
-// ---------------------------------------------------------------------------
-// Append-to-log helper
-// ---------------------------------------------------------------------------
-
 fn append_launch_log(log_path: &std::path::Path, msg: &str) {
     use std::io::Write;
     let ts = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ");
@@ -114,18 +82,6 @@ fn append_launch_log(log_path: &std::path::Path, msg: &str) {
         let _ = f.write_all(line.as_bytes());
     }
 }
-
-fn jdk_help_hint() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "W ustawieniach możesz uruchomić instalator systemowy (UAC)."
-    } else {
-        "Launcher używa systemowej Javy albo portable JDK 21 (fallback)."
-    }
-}
-
-// ---------------------------------------------------------------------------
-// start_game command
-// ---------------------------------------------------------------------------
 
 #[tauri::command]
 pub async fn start_game(
@@ -160,7 +116,6 @@ pub async fn start_game(
         }};
     }
 
-    // ---- 1. Resolve auth ----
     emit_state(&app, "verifying");
 
     let auth: AuthInfo = match payload.r#type.as_str() {
@@ -189,92 +144,25 @@ pub async fn start_game(
             if let Err(e) = ensure_session_valid(&mut session).await {
                 crash_and_return!(format!("Błąd odświeżania tokenu: {e}"));
             }
-            // Persist refreshed session
             let _ = crate::session::store::save_session(&session);
             AuthInfo::from_session(&session)
         }
         other => crash_and_return!(format!("Nieznany typ konta: {other}")),
     };
 
-    // ---- 2. Ensure Java 21 ----
-    let runtime_root = bundled_java_runtime_root(&app);
-    let java_path = {
-        let cached = find_bundled_java(&runtime_root);
-        let bundled_ok = match &cached {
-            Some(exe) => {
-                let major = java_major_version(exe);
-                major >= MIN_JAVA_MAJOR
-            }
-            None => false,
-        };
+    emit_state(&app, "checking-java");
+    let (java_path, java_major) = resolve_system_java();
+    if java_major < MIN_JAVA_MAJOR {
+        crash_and_return!(format!(
+            "Wymagane JDK {} (wykryto Java {}). Pobierz i zainstaluj: {}\n\nPełny log: {}",
+            MIN_JAVA_MAJOR,
+            java_major,
+            JDK21_INFO_URL,
+            log_path.display()
+        ));
+    }
+    emit_progress(&app, 4);
 
-        if bundled_ok {
-            emit_progress(&app, 100);
-            cached.expect("bundled_ok implies Some").clone()
-        } else {
-            if cached.is_some() {
-                if let Err(e) = purge_portable_jdk(&runtime_root) {
-                    log!(&format!("Nie udało się usunąć starego JDK: {e}"));
-                } else {
-                    log!("Wykryto nieaktualne lub uszkodzone JDK w folderze runtime — ponawiam instalację JDK 21.");
-                }
-            }
-
-            emit_state(&app, "java-download");
-            emit_progress(&app, 0);
-
-            let app_clone = app.clone();
-            let result = ensure_java_21(&runtime_root, move |p| {
-                emit_progress(&app_clone, p);
-            })
-            .await;
-
-            match result {
-                Ok(exe) => {
-                    let major = java_major_version(&exe);
-                    if major < MIN_JAVA_MAJOR {
-                        let (sys_java, sys_major) = resolve_system_java();
-                        if sys_major < MIN_JAVA_MAJOR {
-                            crash_and_return!(format!(
-                                "Znaleziono Java {}, a wymagane jest JDK {}.\n\
-                                 Launcher próbował pobrać JDK do folderu:\n{}\n\
-                                 {}\n\
-                                 Pełny log: {}",
-                                sys_major.max(major).max(0),
-                                MIN_JAVA_MAJOR,
-                                runtime_root.display(),
-                                jdk_help_hint(),
-                                log_path.display()
-                            ));
-                        }
-                        sys_java
-                    } else {
-                        exe
-                    }
-                }
-                Err(e) => {
-                    log!(&format!("JavaManager (Adoptium / lokalne JDK): {e}"));
-                    let (sys_java, sys_major) = resolve_system_java();
-                    if sys_major < MIN_JAVA_MAJOR {
-                        crash_and_return!(format!(
-                            "Znaleziono Java {}, a wymagane jest JDK {}.\n\
-                             Launcher próbował pobrać JDK do folderu:\n{}\n\
-                             {}\n\
-                             Pełny log: {}",
-                            sys_major,
-                            MIN_JAVA_MAJOR,
-                            runtime_root.display(),
-                            jdk_help_hint(),
-                            log_path.display()
-                        ));
-                    }
-                    sys_java
-                }
-            }
-        }
-    };
-
-    // ---- 3. Mod sync ----
     let use_modpack = std::env::var("CREATECRAFT_DISABLE_MODPACK").as_deref() != Ok("1")
         && std::env::var("SUPERSMP_DISABLE_MODPACK").as_deref() != Ok("1");
 
@@ -320,7 +208,6 @@ pub async fn start_game(
             let _ = std::fs::remove_file(&force_flag);
         }
 
-        // Install NeoForge if needed
         emit_state(&app, "checking-files");
         let _nf_version = match ensure_neoforge(
             &java_path,
@@ -337,11 +224,9 @@ pub async fn start_game(
             Err(e) => crash_and_return!(format!("Błąd instalatora NeoForge: {e}\nPełny log: {}", log_path.display())),
         };
 
-        // Copy servers.dat
         copy_servers_dat(&game_root, &resource_dir);
     }
 
-    // ---- 4. Download Minecraft files (if needed) ----
     emit_state(&app, "downloading");
     emit_progress(&app, 0);
 
@@ -350,7 +235,6 @@ pub async fn start_game(
         Err(e) => crash_and_return!(format!("Błąd HTTP klienta: {e}")),
     };
 
-    // Fetch / load version JSON
     let version_json = if use_modpack {
         let nf_ver = resolve_neoforge_version();
         let nf_path = neoforge_version_json_path(&game_root, &nf_ver);
@@ -360,7 +244,6 @@ pub async fn start_game(
                 Err(e) => crash_and_return!(format!("Błąd odczytu wersji NeoForge: {e}")),
             }
         } else {
-            // Fallback to vanilla if NeoForge JSON doesn't exist yet
             match fetch_version_json(&http_client, &game_root, MC_VERSION).await {
                 Ok(v) => v,
                 Err(e) => crash_and_return!(format!("Błąd pobierania wersji MC: {e}")),
@@ -373,7 +256,6 @@ pub async fn start_game(
         }
     };
 
-    // Resolve inheritsFrom so vanilla + NeoForge libraries are both downloaded
     let full_version_json = match resolve_full_version(&http_client, &game_root, version_json.clone()).await {
         Ok(v) => v,
         Err(e) => crash_and_return!(format!("Błąd rozwiązywania wersji MC: {e}")),
@@ -395,10 +277,8 @@ pub async fn start_game(
         ));
     }
 
-    // Copy servers.dat again just before launch
     copy_servers_dat(&game_root, &resource_dir);
 
-    // ---- 5. Build JVM args ----
     let server_host = std::env::var("CREATECRAFT_SERVER_HOST")
         .or_else(|_| std::env::var("SUPERSMP_SERVER_HOST"))
         .unwrap_or_else(|_| "main.createcrafts.pl".to_string());
@@ -438,7 +318,6 @@ pub async fn start_game(
 
     emit_state(&app, "launching");
 
-    // ---- 6. Spawn game ----
     let app_log = app.clone();
     let app_close = app.clone();
     let log_path_clone = log_path.clone();
@@ -475,37 +354,4 @@ pub async fn start_game(
 
     emit_state(&app, "connected");
     Ok(())
-}
-
-/// Pobiera instalator MSI Temurin JDK 21 i uruchamia go z podwyższonymi uprawnieniami (UAC).
-#[tauri::command]
-pub async fn install_system_jdk_elevated() -> std::result::Result<String, String> {
-    #[cfg(not(target_os = "windows"))]
-    {
-        return Err("Instalator systemowy JDK jest dostępny tylko na Windows.".into());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let dir = std::env::temp_dir();
-        let msi = dir.join("createcrafts-temurin-21-jdk.msi");
-
-        let need_download = match std::fs::metadata(&msi) {
-            Ok(m) => m.len() < 1024 * 1024,
-            Err(_) => true,
-        };
-
-        if need_download {
-            download_windows_jdk_msi(&msi)
-                .await
-                .map_err(|e| e.to_string())?;
-        }
-
-        launch_elevated_msi_installer(&msi).map_err(|e| e.to_string())?;
-
-        Ok(
-            "Uruchomiono instalator JDK (okno UAC). Po zakończeniu instalacji uruchom grę ponownie."
-                .into(),
-        )
-    }
 }

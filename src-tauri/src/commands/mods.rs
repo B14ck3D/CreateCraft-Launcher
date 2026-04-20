@@ -1,6 +1,5 @@
 use crate::crypto::key_embed::resolve_mods_api_key;
-use crate::crypto::manifest_sig::ModManifest;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 #[cfg(not(debug_assertions))]
 use tauri::Manager;
@@ -10,8 +9,23 @@ const MODS_API_BASE_DEFAULT: &str = "https://createcrafts.pl";
 
 const MODS_KEY_MISSING_HELP: &str =
     "Brak klucza modów: umieść branding/launcher-mods-key.enc (npm run embed:mods-key) lub jawny branding/launcher-mods-key + prep:brand, albo export LAUNCHER_MODS_API_KEY=...";
-#[allow(dead_code)]
-const CREATECRAFTS_SPKI_PIN_B64: &str = "mXC/m3zXpYXTKFA4fKCGeYq0jpeXjpxc0WNHYGvv5n8=";
+
+#[derive(Debug, Deserialize)]
+pub struct ModEntry {
+    pub name: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ModManifest {
+    pub v: serde_json::Value,
+    pub generated: Option<String>,
+    pub count: u64,
+    #[serde(default)]
+    pub signature: Option<String>,
+    pub mods: Vec<ModEntry>,
+}
 
 fn default_game_root() -> PathBuf {
     dirs::data_dir()
@@ -100,18 +114,14 @@ async fn sha256_file(path: &Path) -> Option<String> {
     Some(hex::encode(h.finalize()))
 }
 
-// Mod file status (for UI list)
-
 #[derive(Debug, Serialize)]
 pub struct ModFileStatus {
     pub name: String,
-    pub status: String, // "ok" | "mismatch" | "missing" | "unknown"
+    pub status: String,
     pub local_size: Option<u64>,
     pub expected_size: u64,
     pub sha256: String,
 }
-
-// Public sync helper (used from game.rs too)
 
 pub async fn sync_mods(
     game_root: &Path,
@@ -226,7 +236,6 @@ async fn download_mod_jar(
     let tmp = dest.with_extension("part");
     let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
 
-    // Verify SHA-256
     let mut h = Sha256::new();
     h.update(&bytes);
     let digest = hex::encode(h.finalize());
@@ -245,8 +254,6 @@ async fn download_mod_jar(
         .map_err(|e| e.to_string())?;
     Ok(())
 }
-
-// Tauri commands
 
 #[tauri::command]
 pub async fn get_mods_info(

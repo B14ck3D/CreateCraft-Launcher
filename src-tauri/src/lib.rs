@@ -8,7 +8,7 @@ pub use error::{LauncherError, Result};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let res = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::auth::login_microsoft,
@@ -26,11 +26,15 @@ pub fn run() {
             #[cfg(debug_assertions)]
             {
                 use tauri::Manager;
-                let window = _app.get_webview_window("main").unwrap();
-                window.open_devtools();
+                if let Some(w) = _app.get_webview_window("main") {
+                    w.open_devtools();
+                }
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("Błąd uruchamiania CreateCrafts Launcher");
+        .run(tauri::generate_context!());
+    if let Err(e) = res {
+        eprintln!("CreateCrafts Launcher: {e}");
+        std::process::exit(1);
+    }
 }

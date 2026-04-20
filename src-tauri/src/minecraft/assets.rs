@@ -236,7 +236,9 @@ pub async fn fetch_version_json(
                 LauncherError::Minecraft(format!("Wersja {version_id} nie znaleziona w manifeście"))
             })?;
 
-        std::fs::create_dir_all(dest.parent().unwrap())?;
+        if let Some(p) = dest.parent() {
+            std::fs::create_dir_all(p)?;
+        }
         let json_bytes = download_bytes(client, &entry.url).await?;
         std::fs::write(&dest, &json_bytes)?;
     }

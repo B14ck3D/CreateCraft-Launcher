@@ -8,6 +8,8 @@ use crate::minecraft::neoforge::{ensure_neoforge, neoforge_version_json_path, re
 use crate::session::store::load_session;
 use serde::Deserialize;
 use std::path::PathBuf;
+#[cfg(not(debug_assertions))]
+use tauri::Manager;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

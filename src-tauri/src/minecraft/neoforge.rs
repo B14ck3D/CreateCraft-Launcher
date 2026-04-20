@@ -142,8 +142,6 @@ fn prune_old_installers(game_root: &Path, keep_version: &str) {
     }
 }
 
-// version.json extraction (for early load before install completes)
-
 fn extract_neoforge_version_json(
     installer_jar: &Path,
     game_root: &Path,
@@ -178,19 +176,20 @@ fn extract_neoforge_version_json(
         {
             json_str
         } else {
-            let re_id = regex::Regex::new(r#""id"\s*:\s*"[^"]+""#).unwrap();
+            let re_id = regex::Regex::new(r#""id"\s*:\s*"[^"]+""#)
+                .map_err(|e| LauncherError::Minecraft(format!("regex: {e}")))?;
             re_id
                 .replace(&json_str, format!("\"id\":\"{vid}\""))
                 .to_string()
         };
 
-    std::fs::create_dir_all(dest.parent().unwrap())?;
+    if let Some(p) = dest.parent() {
+        std::fs::create_dir_all(p)?;
+    }
     std::fs::write(&dest, json_patched.as_bytes())?;
     on_log(&format!("[neoforge] version.json zapisany: {}", dest.display()));
     Ok(())
 }
-
-// Running the installer
 
 fn ensure_launcher_profiles(game_root: &Path) {
     let profiles_path = game_root.join("launcher_profiles.json");

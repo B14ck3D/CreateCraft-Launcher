@@ -22,7 +22,6 @@ serde_json  = "1"
 
 tokio       = { version = "1", features = ["full"] }
 
-# HTTP — rustls-tls so we can supply a custom cert verifier for TLS pinning
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "stream",
@@ -36,14 +35,12 @@ futures-util = "0.3"
 # Crypto
 sha1    = "0.10"
 sha2    = "0.10"
-hmac    = "0.12"
 aes-gcm = { version = "0.10", features = ["std"] }
 rand = "0.8"
 scrypt  = "0.11"
 md-5    = "0.10"
 hex     = "0.4"
 base64  = "0.22"
-subtle  = "2"
 
 zip     = { version = "2", default-features = false, features = ["deflate"] }
 

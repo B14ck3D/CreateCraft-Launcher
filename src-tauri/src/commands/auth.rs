@@ -9,8 +9,6 @@ fn ms_login_lock() -> &'static tokio::sync::Mutex<()> {
     MS_LOGIN_BUSY.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
-// Returned profile type (matches what App.jsx expects)
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProfileResult {
     pub id: String,
@@ -19,9 +17,6 @@ pub struct ProfileResult {
     pub label: String,
     pub avatar: String,
 }
-
-// MS OAuth constants
-// This uses the public Xbox Live / Minecraft launcher client ID (same as MCLC/msmc).
 
 const MS_CLIENT_ID: &str = "00000000402b5328";
 const MS_REDIRECT_URI: &str = "https://login.live.com/oauth20_desktop.srf";
@@ -71,8 +66,6 @@ fn oauth_error_user_message(error: &str, desc: Option<&str>) -> String {
         _ => base,
     }
 }
-
-// Token exchange helpers
 
 #[derive(Debug, Deserialize)]
 struct MsTokenResponse {
@@ -311,8 +304,6 @@ fn mineatar_url(uuid: &str) -> String {
     }
 }
 
-// Full MS auth flow: open window → get code → exchange → profile
-
 async fn do_ms_auth(app: &tauri::AppHandle) -> Result<PremiumSession> {
     let auth_url = ms_auth_url();
     let (tx, rx) = tokio::sync::oneshot::channel::<std::result::Result<String, String>>();
@@ -442,8 +433,6 @@ pub async fn ensure_session_valid(session: &mut PremiumSession) -> Result<()> {
 
     Ok(())
 }
-
-// Tauri commands
 
 #[tauri::command]
 pub async fn login_microsoft(app: tauri::AppHandle) -> std::result::Result<ProfileResult, String> {

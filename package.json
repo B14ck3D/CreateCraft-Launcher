@@ -18,8 +18,7 @@
     "tauri": "tauri",
     "prep:brand": "node scripts/prepare-branding.cjs",
     "embed:mods-key": "node scripts/embed-mods-api-key.cjs",
-    "embed:mods-key:stdin": "node scripts/embed-mods-api-key.cjs --stdin",
-    "test:mods-signature": "node --test ./test/launcherModsManifestSignature.test.cjs"
+    "embed:mods-key:stdin": "node scripts/embed-mods-api-key.cjs --stdin"
   },
   "keywords": [],
   "author": {

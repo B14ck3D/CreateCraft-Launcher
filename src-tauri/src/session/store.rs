@@ -22,8 +22,6 @@ pub struct PremiumSession {
     pub client_token: Option<String>,
 }
 
-// Machine-specific encryption key
-
 fn machine_key() -> [u8; 32] {
     let host = std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
@@ -40,7 +38,7 @@ fn machine_key() -> [u8; 32] {
     h.finalize().into()
 }
 
-fn encrypt_session(plaintext: &[u8]) -> Vec<u8> {
+fn encrypt_session(plaintext: &[u8]) -> Result<Vec<u8>> {
     let key_bytes = machine_key();
     let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
     let cipher = Aes256Gcm::new(key);
@@ -49,13 +47,15 @@ fn encrypt_session(plaintext: &[u8]) -> Vec<u8> {
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let ciphertext = cipher.encrypt(nonce, plaintext).expect("AES-GCM encrypt");
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|e| LauncherError::Crypto(format!("AES-GCM: {e}")))?;
 
     let mut out = Vec::with_capacity(MAGIC.len() + 12 + ciphertext.len());
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&nonce_bytes);
     out.extend_from_slice(&ciphertext);
-    out
+    Ok(out)
 }
 
 fn decrypt_session_bytes(data: &[u8]) -> Option<Vec<u8>> {
@@ -73,8 +73,6 @@ fn decrypt_session_bytes(data: &[u8]) -> Option<Vec<u8>> {
     let cipher = Aes256Gcm::new(key);
     cipher.decrypt(nonce, ciphertext).ok()
 }
-
-// Path helpers
 
 fn sanitize_id(id: &str) -> String {
     id.chars()
@@ -94,27 +92,23 @@ fn session_path(profile_id: &str) -> PathBuf {
     sessions_dir().join(format!("session-{safe_id}.bin"))
 }
 
-// Public API
-
 pub fn save_session(session: &PremiumSession) -> Result<()> {
     let dir = sessions_dir();
     std::fs::create_dir_all(&dir).map_err(LauncherError::Io)?;
     let path = session_path(&session.uuid);
     let json = serde_json::to_string(session)?;
-    let encrypted = encrypt_session(json.as_bytes());
+    let encrypted = encrypt_session(json.as_bytes())?;
     std::fs::write(&path, encrypted).map_err(LauncherError::Io)
 }
 
 pub fn load_session(profile_id: &str) -> Result<Option<PremiumSession>> {
     let path = session_path(profile_id);
     if !path.exists() {
-        // Also check legacy plain JSON path
         let legacy = sessions_dir().join(format!("session-{}.json", sanitize_id(profile_id)));
         if legacy.exists() {
             let raw = std::fs::read_to_string(&legacy).map_err(LauncherError::Io)?;
             let session: PremiumSession = serde_json::from_str(&raw)
                 .map_err(|e| LauncherError::Session(format!("Błąd odczytu sesji: {e}")))?;
-            // Migrate: re-save encrypted, remove plain
             let _ = save_session(&session);
             let _ = std::fs::remove_file(&legacy);
             return Ok(Some(session));
@@ -136,7 +130,6 @@ pub fn delete_session(profile_id: &str) -> Result<()> {
     if path.exists() {
         std::fs::remove_file(&path).map_err(LauncherError::Io)?;
     }
-    // Also remove legacy plain JSON if present
     let legacy = sessions_dir().join(format!("session-{}.json", sanitize_id(profile_id)));
     if legacy.exists() {
         let _ = std::fs::remove_file(&legacy);
@@ -183,9 +176,10 @@ pub fn migrate_profiles_array(
             if let Ok(json) = serde_json::to_string(&token_obj) {
                 let dir = sessions_dir();
                 if std::fs::create_dir_all(&dir).is_ok() {
-                    let encrypted = encrypt_session(json.as_bytes());
-                    let path = dir.join(format!("session-{uuid}.bin"));
-                    let _ = std::fs::write(path, encrypted);
+                    if let Ok(encrypted) = encrypt_session(json.as_bytes()) {
+                        let path = dir.join(format!("session-{uuid}.bin"));
+                        let _ = std::fs::write(path, encrypted);
+                    }
                 }
             }
 

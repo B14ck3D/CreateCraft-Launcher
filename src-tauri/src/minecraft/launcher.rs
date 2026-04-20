@@ -7,8 +7,6 @@ use std::process::Stdio;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
-// Auth data passed from start_game
-
 #[derive(Debug, Clone)]
 pub struct AuthInfo {
     pub username: String,
@@ -352,24 +350,19 @@ pub async fn build_launch_args(
     // Main class
     args.push(version.main_class.clone());
 
-    // Game args
     if let Some(version_args) = &version.arguments {
         let game_args = collect_args_from_json(&version_args.game, &vars, &features);
         args.extend(game_args);
     } else if let Some(mc_args) = &version.minecraft_arguments {
-        // Legacy single-string format
         for token in mc_args.split_whitespace() {
             args.push(substitute_arg(token, &vars));
         }
     }
 
-    // Auto-connect to server
     args.extend(server_connect_args(&config.server_host, &config.server_port));
 
     Ok(args)
 }
-
-// Game process spawner
 
 pub async fn spawn_game(
     java_path: &Path,
@@ -385,7 +378,6 @@ pub async fn spawn_game(
         .stderr(Stdio::piped())
         .kill_on_drop(false);
 
-    // Hide the console window on Windows so no CMD popup appears
     #[cfg(target_os = "windows")]
     {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -396,13 +388,18 @@ pub async fn spawn_game(
         .spawn()
         .map_err(|e| LauncherError::Java(format!("Nie można uruchomić Java: {e}")))?;
 
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| LauncherError::Java("Brak stdout procesu Java.".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| LauncherError::Java("Brak stderr procesu Java.".into()))?;
 
     let on_log = std::sync::Arc::new(on_log);
     let on_log2 = on_log.clone();
 
-    // Stream stdout
     tokio::spawn(async move {
         let mut reader = tokio::io::BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -410,7 +407,6 @@ pub async fn spawn_game(
         }
     });
 
-    // Stream stderr
     tokio::spawn(async move {
         let mut reader = tokio::io::BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
@@ -418,7 +414,6 @@ pub async fn spawn_game(
         }
     });
 
-    // Wait for exit in background task
     tokio::spawn(async move {
         let status = child.wait().await;
         let code = status.ok().and_then(|s| s.code());

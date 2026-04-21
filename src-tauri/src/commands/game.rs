@@ -2,7 +2,7 @@ use tauri::Emitter;
 use crate::commands::auth::ensure_session_valid;
 use crate::commands::mods::sync_mods;
 use crate::minecraft::assets::{build_mc_client, download_minecraft_files, fetch_version_json, resolve_full_version};
-use crate::minecraft::java::{resolve_system_java, JDK21_INFO_URL, MIN_JAVA_MAJOR};
+use crate::minecraft::java::resolve_java21_runtime;
 use crate::minecraft::launcher::{build_launch_args, spawn_game, AuthInfo, LaunchConfig};
 use crate::minecraft::neoforge::{ensure_neoforge, neoforge_version_json_path, resolve_neoforge_version, MC_VERSION};
 use crate::session::store::load_session;
@@ -18,6 +18,27 @@ pub struct StartGamePayload {
     pub offline_name: Option<String>,
     pub profile_id: Option<String>,
     pub ram_size: Option<String>,
+}
+
+fn sanitize_ram_size(raw: Option<String>) -> String {
+    let value = raw.unwrap_or_else(|| "6G".to_string()).trim().to_ascii_lowercase();
+    if value.is_empty() {
+        return "6G".to_string();
+    }
+    let (num, unit) = match value.chars().last() {
+        Some('g') => (&value[..value.len() - 1], "G"),
+        Some('m') => (&value[..value.len() - 1], "M"),
+        _ => (value.as_str(), "G"),
+    };
+    if let Ok(parsed) = num.trim().parse::<u32>() {
+        let clamped = if unit == "G" {
+            parsed.clamp(1, 16)
+        } else {
+            parsed.clamp(1024, 16384)
+        };
+        return format!("{clamped}{unit}");
+    }
+    "6G".to_string()
 }
 
 fn default_game_root() -> PathBuf {
@@ -153,16 +174,15 @@ pub async fn start_game(
     };
 
     emit_state(&app, "checking-java");
-    let (java_path, java_major) = resolve_system_java();
-    if java_major < MIN_JAVA_MAJOR {
-        crash_and_return!(format!(
-            "Wymagane JDK {} (wykryto Java {}). Pobierz i zainstaluj: {}\n\nPełny log: {}",
-            MIN_JAVA_MAJOR,
-            java_major,
-            JDK21_INFO_URL,
+    let java_runtime = match resolve_java21_runtime(&game_root).await {
+        Ok(rt) => rt,
+        Err(e) => crash_and_return!(format!(
+            "Nie udało się przygotować Java 21 runtime: {e}\n\nPełny log: {}",
             log_path.display()
-        ));
-    }
+        )),
+    };
+    let java_path = java_runtime.javaw_path.clone();
+    let java_exec_path = java_runtime.java_path.clone();
     emit_progress(&app, 4);
 
     let use_modpack = std::env::var("CREATECRAFT_DISABLE_MODPACK").as_deref() != Ok("1")
@@ -212,7 +232,7 @@ pub async fn start_game(
 
         emit_state(&app, "checking-files");
         let _nf_version = match ensure_neoforge(
-            &java_path,
+            &java_exec_path,
             &game_root,
             &|msg| {
                 emit_log(&app, msg);
@@ -288,13 +308,13 @@ pub async fn start_game(
         .or_else(|_| std::env::var("SUPERSMP_SERVER_PORT"))
         .unwrap_or_else(|_| "25565".to_string());
 
-    let ram_size = payload.ram_size.unwrap_or_else(|| "6G".to_string());
+    let ram_size = sanitize_ram_size(payload.ram_size);
 
     let launch_config = LaunchConfig {
         java_path: java_path.clone(),
         game_root: game_root.clone(),
         auth: auth.clone(),
-        ram_max: ram_size,
+        ram_max: ram_size.clone(),
         neoforge_version: if use_modpack {
             resolve_neoforge_version()
         } else {
@@ -317,6 +337,14 @@ pub async fn start_game(
         server_host,
         server_port
     ));
+    log!(&format!(
+        "Java runtime: major={} source={:?} java={} javaw={}",
+        java_runtime.major,
+        java_runtime.source,
+        java_exec_path.display(),
+        java_path.display()
+    ));
+    log!(&format!("Konfiguracja RAM: {}", ram_size));
 
     emit_state(&app, "launching");
 

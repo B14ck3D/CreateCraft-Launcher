@@ -20,6 +20,9 @@ pub enum LauncherError {
     #[error("Błąd Java: {0}")]
     Java(String),
 
+    #[error("Błąd runtime Java: {0}")]
+    JavaRuntime(String),
+
     #[error("Błąd Minecraft: {0}")]
     Minecraft(String),
 

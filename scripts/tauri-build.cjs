@@ -12,9 +12,14 @@ if (process.platform === 'linux') {
 }
 
 const extra = process.argv.slice(2);
+const env = { ...process.env };
+if (env.CI === '1') {
+  delete env.CI;
+}
+
 const r = spawnSync('npx', ['tauri', 'build', ...extra], {
   stdio: 'inherit',
-  env: process.env,
+  env,
   shell: true,
 });
 

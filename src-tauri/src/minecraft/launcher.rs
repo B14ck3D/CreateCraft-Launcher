@@ -7,6 +7,40 @@ use std::process::Stdio;
 use tokio::io::AsyncBufReadExt;
 use tokio::process::Command;
 
+#[cfg(target_os = "windows")]
+fn apply_windows_libvlc_env(cmd: &mut Command) {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(custom) = std::env::var("CREATECRAFT_VLC_ROOT") {
+        let t = custom.trim();
+        if !t.is_empty() {
+            roots.push(PathBuf::from(t));
+        }
+    }
+    let pf = std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".into());
+    let pf86 = std::env::var("ProgramFiles(x86)")
+        .unwrap_or_else(|_| "C:\\Program Files (x86)".into());
+    roots.push(Path::new(&pf).join("VideoLAN").join("VLC"));
+    roots.push(Path::new(&pf86).join("VideoLAN").join("VLC"));
+
+    for vlc_root in roots {
+        let libvlc = vlc_root.join("libvlc.dll");
+        if !libvlc.exists() {
+            continue;
+        }
+        let mut path = std::env::var("PATH").unwrap_or_default();
+        let prefix = vlc_root.display().to_string();
+        if !path.split(';').any(|p| p.eq_ignore_ascii_case(prefix.as_str())) {
+            path = format!("{prefix};{path}");
+        }
+        cmd.env("PATH", path);
+        let plugins = vlc_root.join("plugins");
+        if plugins.is_dir() {
+            cmd.env("VLC_PLUGIN_PATH", plugins);
+        }
+        break;
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AuthInfo {
     pub username: String,
@@ -103,6 +137,36 @@ fn server_connect_args(host: &str, port: &str) -> Vec<String> {
     } else {
         vec!["--server".to_string(), host.to_string()]
     }
+}
+
+fn parse_memory_to_mb(raw: &str) -> Option<u32> {
+    let trimmed = raw.trim().to_ascii_lowercase();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (num, unit) = match trimmed.chars().last() {
+        Some('g') => (&trimmed[..trimmed.len() - 1], "g"),
+        Some('m') => (&trimmed[..trimmed.len() - 1], "m"),
+        _ => (trimmed.as_str(), "g"),
+    };
+    let value = num.trim().parse::<u32>().ok()?;
+    if value == 0 {
+        return None;
+    }
+    Some(if unit == "g" {
+        value.saturating_mul(1024)
+    } else {
+        value
+    })
+}
+
+fn normalize_memory_args(raw: &str) -> (u32, u32) {
+    let xmx_mb = parse_memory_to_mb(raw).unwrap_or(6144).clamp(1024, 16384);
+    let mut xms_mb = if xmx_mb >= 2048 { 1024 } else { 512 };
+    if xms_mb >= xmx_mb {
+        xms_mb = (xmx_mb / 2).max(256);
+    }
+    (xmx_mb, xms_mb)
 }
 
 // Version JSON merging (for NeoForge that inheritsFrom base MC)
@@ -282,6 +346,16 @@ pub async fn build_launch_args(
     extract_natives(game_root, version, &natives_dir)?;
 
     let classpath = build_classpath(game_root, version);
+    if classpath.is_empty() {
+        return Err(LauncherError::Minecraft(
+            "Classpath jest pusty - brak bibliotek lub client.jar.".to_string(),
+        ));
+    }
+    if version.main_class.trim().is_empty() {
+        return Err(LauncherError::Minecraft(
+            "Brak mainClass w pliku wersji Minecraft.".to_string(),
+        ));
+    }
     let assets_dir = game_root.join("assets");
     let version_id = version.id.clone();
 
@@ -315,9 +389,9 @@ pub async fn build_launch_args(
 
     let mut args: Vec<String> = Vec::new();
 
-    // Memory
-    args.push(format!("-Xmx{}", config.ram_max));
-    args.push("-Xms1G".to_string());
+    let (xmx_mb, xms_mb) = normalize_memory_args(&config.ram_max);
+    args.push(format!("-Xmx{}M", xmx_mb));
+    args.push(format!("-Xms{}M", xms_mb));
 
     // Performance + OS args
     args.extend(jvm_performance_args());
@@ -374,12 +448,14 @@ pub async fn spawn_game(
     let mut cmd = Command::new(java_path);
     cmd.args(args)
         .current_dir(game_root)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(false);
 
     #[cfg(target_os = "windows")]
     {
+        apply_windows_libvlc_env(&mut cmd);
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }

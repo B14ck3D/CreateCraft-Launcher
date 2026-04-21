@@ -277,7 +277,11 @@ export default function App() {
     const r = await window.launcher.createcraftsForceModResyncNext();
     if (r?.ok) {
       setForceModResyncPending(true);
-      setForceModResyncNotice('Przy następnym uruchomieniu gry wszystkie mody z listy zostaną pobrane ponownie.');
+      setForceModResyncNotice(
+        r?.removedModsDir
+          ? 'Folder modów został usunięty. Przy następnym uruchomieniu gry wszystkie mody pobiorą się od zera.'
+          : 'Przy następnym uruchomieniu gry wszystkie mody z listy zostaną pobrane ponownie.'
+      );
     } else {
       setForceModResyncNotice(r?.error || 'Nie udało się zapisać żądania.');
     }
@@ -523,8 +527,8 @@ export default function App() {
                       </p>
                       <h3 className="text-lg font-bold text-foreground">Synchronizacja modów</h3>
                       <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Wymusza ponowne pobranie plików z indeksu createcrafts.pl przy kolejnym starcie gry (nie kasuje
-                        świata).
+                        Usuwa folder modów i wymusza pełne pobranie paczki z indeksu createcrafts.pl przy kolejnym
+                        starcie gry (nie kasuje świata).
                       </p>
                     </div>
                   </div>

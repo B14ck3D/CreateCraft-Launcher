@@ -336,9 +336,24 @@ pub async fn get_mods_info(
 pub async fn force_mod_resync_next() -> std::result::Result<serde_json::Value, String> {
     let game_root = default_game_root();
     std::fs::create_dir_all(&game_root).map_err(|e| e.to_string())?;
+    let mods_dir = game_root.join("mods");
+    let mut removed = false;
+    if mods_dir.exists() {
+        std::fs::remove_dir_all(&mods_dir).map_err(|e| {
+            format!(
+                "Nie udało się usunąć folderu modów ({}): {e}",
+                mods_dir.display()
+            )
+        })?;
+        removed = true;
+    }
     let flag = force_resync_flag_path(&game_root);
     std::fs::write(&flag, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "ok": true }))
+    Ok(serde_json::json!({
+        "ok": true,
+        "modsDir": mods_dir,
+        "removedModsDir": removed
+    }))
 }
 
 #[tauri::command]

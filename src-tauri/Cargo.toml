@@ -1,7 +1,7 @@
 [package]
 name = "createcrafts-launcher"
 version = "1.0.1"
-description = "CreateCrafts Launcher — Tauri 2, Minecraft 1.21.1, NeoForge"
+description = "CreateCrafts Launcher - Tauri 2, Minecraft 1.21.1, NeoForge"
 authors = ["Bl4ck3d"]
 edition = "2021"
 rust-version = "1.77"
@@ -55,6 +55,7 @@ os_info   = "3"
 dirs      = "5"
 regex     = "1"
 semver    = "1"
+image     = { version = "0.25", default-features = false, features = ["png"] }
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

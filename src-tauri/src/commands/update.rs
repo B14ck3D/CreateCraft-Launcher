@@ -37,20 +37,43 @@ struct LauncherMetaResponse {
 }
 
 #[cfg(target_os = "windows")]
+fn chunk_contains_nsis_marker(chunk: &[u8]) -> bool {
+    let lower: Vec<u8> = chunk.iter().map(|b| b.to_ascii_lowercase()).collect();
+    lower.windows(9).any(|w| w == b"nullsoft")
+        || lower.windows(10).any(|w| w == b"nsis error")
+        || lower.windows(12).any(|w| w == b"nsis.install")
+        || lower.windows(4).any(|w| w == b"nsis")
+}
+
+#[cfg(target_os = "windows")]
 fn exe_looks_like_nsis_installer(path: &Path) -> bool {
     use std::fs::File;
-    use std::io::Read;
+    use std::io::{Read, Seek, SeekFrom};
+    const WINDOW: usize = 6 * 1024 * 1024;
+    const STEP: u64 = 4 * 1024 * 1024;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    let len = meta.len();
     let Ok(mut file) = File::open(path) else {
         return false;
     };
-    let mut buf = vec![0u8; 5 * 1024 * 1024];
-    let Ok(n) = file.read(&mut buf) else {
-        return false;
-    };
-    let chunk = &buf[..n];
-    let lower: Vec<u8> = chunk.iter().map(|b| b.to_ascii_lowercase()).collect();
-    lower.windows(9).any(|w| w == b"nullsoft")
-        || lower.windows(4).any(|w| w == b"nsis")
+    let mut off = 0u64;
+    let scan_cap = len.min(64 * 1024 * 1024);
+    while off < scan_cap {
+        let _ = file.seek(SeekFrom::Start(off));
+        let mut buf = vec![0u8; WINDOW];
+        let n = match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => break,
+        };
+        if chunk_contains_nsis_marker(&buf[..n]) {
+            return true;
+        }
+        off = off.saturating_add(STEP);
+    }
+    false
 }
 
 fn resolve_download_url(base: &str, url: &str) -> String {

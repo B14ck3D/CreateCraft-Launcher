@@ -33,6 +33,24 @@ const LAUNCHER_SETTINGS_KEY = 'createcraft_launcher_settings_v1';
 const ADOPTIUM_JDK21_URL =
   'https://adoptium.net/temurin/releases/?package=jdk&version=21';
 
+/** Pas aktualizacji: widoczny tylko gdy jest cos do pokazania (nie zaslania nawigacji). */
+function launcherUpdateDockVisible(loading, data) {
+  if (loading) return true;
+  if (!data) return false;
+  if (data.installError) return true;
+  if (data.manualHint) return true;
+  if (data.ok === false && data.error) return true;
+  return Boolean(data.ok && data.updateAvailable);
+}
+
+function normalizeLauncherUpdateError(message) {
+  const s = String(message || '');
+  if (/Windows update requires/i.test(s) && /NSIS/i.test(s)) {
+    return 'Stary komunikat z poprzedniej wersji. Zainstaluj najnowszy launcher z createcrafts.pl - aktualizacja jest obslugiwana inaczej (NSIS + skan pliku).';
+  }
+  return s;
+}
+
 function clampRamGb(n) {
   const x = typeof n === 'number' ? n : parseInt(String(n), 10);
   if (!Number.isFinite(x)) return 6;
@@ -205,7 +223,7 @@ export default function App() {
     } catch (e) {
       setLauncherUpdate((prev) => ({
         ...(prev || {}),
-        installError: String(e?.message || e),
+        installError: normalizeLauncherUpdateError(e?.message || e),
         manualHint: null,
       }));
     } finally {
@@ -410,30 +428,37 @@ export default function App() {
     setUser(profile);
   }, []);
 
+  const updateDockOpen = launcherUpdateDockVisible(launcherUpdateLoading, launcherUpdate);
+  const shellBottomPad = updateDockOpen ? 'pb-28' : '';
+
   if (!introFinished) {
     return <IntroAnimation />;
   }
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25">
+      <div
+        className={`relative flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25 ${shellBottomPad}`}
+      >
         <TitleBar />
         <div className="relative min-h-0 flex-1">
           <LoginScreen onProfileLogin={handleProfileLogin} />
         </div>
+        <SteampunkFooter appVersion={appVersion} />
         <LauncherUpdateBanner
           loading={launcherUpdateLoading}
           downloading={launcherUpdateDownloading}
           data={launcherUpdate}
           onInstall={runLauncherUpdateInstall}
         />
-        <SteampunkFooter appVersion={appVersion} />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25">
+    <div
+      className={`relative flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25 ${shellBottomPad}`}
+    >
       {launchError && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
@@ -646,13 +671,13 @@ export default function App() {
           </div>
         )}
       </main>
+      <SteampunkFooter appVersion={appVersion} />
       <LauncherUpdateBanner
         loading={launcherUpdateLoading}
         downloading={launcherUpdateDownloading}
         data={launcherUpdate}
         onInstall={runLauncherUpdateInstall}
       />
-      <SteampunkFooter appVersion={appVersion} />
     </div>
   );
 }
@@ -668,8 +693,8 @@ function LauncherUpdateBanner({ loading, downloading, data, onInstall }) {
 
   return (
     <div
-      className={`relative z-[35] shrink-0 border-t border-stone-light/40 px-4 py-3 ${
-        avail ? 'bg-primary/12' : manualHint ? 'bg-card/90' : 'bg-muted/40'
+      className={`fixed bottom-0 left-0 right-0 z-[90] border-t border-stone-light/50 px-4 py-3 shadow-[0_-8px_28px_-6px_rgba(0,0,0,0.55)] backdrop-blur-md ${
+        avail ? 'bg-primary/15' : manualHint ? 'bg-card/95' : installErr ? 'bg-destructive/10' : 'bg-muted/95'
       }`}
     >
       <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:px-8">
@@ -682,7 +707,11 @@ function LauncherUpdateBanner({ loading, downloading, data, onInstall }) {
             </span>
           )}
           {!loading && err && <span className="block leading-snug text-muted-foreground">{err}</span>}
-          {!loading && installErr && <span className="block leading-snug text-destructive">{installErr}</span>}
+          {!loading && installErr && (
+            <span className="block leading-snug text-destructive">
+              {normalizeLauncherUpdateError(installErr)}
+            </span>
+          )}
           {!loading && manualHint && (
             <span className="block leading-snug text-muted-foreground">{manualHint}</span>
           )}

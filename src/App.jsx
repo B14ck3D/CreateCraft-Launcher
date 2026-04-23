@@ -204,6 +204,7 @@ export default function App() {
     if (!window.launcher?.downloadAndInstallLauncherUpdate) return;
     const u = launcherUpdate?.downloadUrl;
     const h = launcherUpdate?.expectedSha256;
+    const fn = launcherUpdate?.installerFilename;
     if (!u || !h) return;
     setLauncherUpdateDownloading(true);
     setLauncherUpdate((prev) => ({
@@ -212,7 +213,7 @@ export default function App() {
       manualHint: null,
     }));
     try {
-      const r = await window.launcher.downloadAndInstallLauncherUpdate(u, h);
+      const r = await window.launcher.downloadAndInstallLauncherUpdate(u, h, fn);
       if (r && r.manual === true && r.message) {
         setLauncherUpdate((prev) => ({
           ...(prev || {}),

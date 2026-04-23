@@ -45,8 +45,12 @@ window.launcher = {
 
   getAppVersion: () => invoke('get_app_version'),
   checkLauncherUpdate: () => invoke('check_launcher_update'),
-  downloadAndInstallLauncherUpdate: (downloadUrl, expectedSha256Hex) =>
-    invoke('download_and_install_launcher_update', { downloadUrl, expectedSha256Hex }),
+  downloadAndInstallLauncherUpdate: (downloadUrl, expectedSha256Hex, installerFilename) =>
+    invoke('download_and_install_launcher_update', {
+      downloadUrl,
+      expectedSha256Hex,
+      installerFilename: installerFilename ?? null,
+    }),
 
   minimize: () => win.minimize(),
   maximize: () =>

@@ -34,6 +34,8 @@ struct LauncherMetaResponse {
     url: String,
     #[serde(default)]
     notes: String,
+    #[serde(default)]
+    filename: String,
 }
 
 #[cfg(target_os = "windows")]
@@ -74,6 +76,55 @@ fn exe_looks_like_nsis_installer(path: &Path) -> bool {
         off = off.saturating_add(STEP);
     }
     false
+}
+
+fn filename_from_content_disposition(value: &str) -> Option<String> {
+    for segment in value.split(';') {
+        let s = segment.trim();
+        if let Some(raw) = s.strip_prefix("filename=") {
+            let raw = raw.trim();
+            let name = if raw.len() >= 2 && raw.starts_with('"') && raw.ends_with('"') {
+                raw[1..raw.len() - 1].replace("\\\"", "\"")
+            } else {
+                raw.to_string()
+            };
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+async fn resolve_installer_basename(
+    client: &reqwest::Client,
+    url: &str,
+    installer_filename: Option<&str>,
+) -> Result<String, String> {
+    let hint = installer_filename.unwrap_or("").trim();
+    if !hint.is_empty()
+        && hint.len() <= 512
+        && !hint.contains('/')
+        && !hint.contains('\\')
+        && !hint.contains("..")
+    {
+        return Ok(hint.to_string());
+    }
+    let resp = client
+        .head(url)
+        .send()
+        .await
+        .map_err(|e| format!("HEAD: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("HEAD HTTP {}", resp.status()));
+    }
+    let cd = resp
+        .headers()
+        .get(reqwest::header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "Brak naglowka Content-Disposition.".to_string())?;
+    filename_from_content_disposition(cd)
+        .ok_or_else(|| "Nie mozna odczytac filename z Content-Disposition.".to_string())
 }
 
 fn resolve_download_url(base: &str, url: &str) -> String {
@@ -136,6 +187,7 @@ pub async fn check_launcher_update(app: tauri::AppHandle) -> Result<serde_json::
         "updateAvailable": update_available,
         "downloadUrl": download_url,
         "expectedSha256": meta.sha256.to_lowercase(),
+        "installerFilename": meta.filename.trim(),
         "notes": meta.notes,
         "error": serde_json::Value::Null,
     }))
@@ -147,6 +199,7 @@ pub async fn download_and_install_launcher_update(
     app: tauri::AppHandle,
     download_url: String,
     expected_sha256_hex: String,
+    installer_filename: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let url = download_url.trim().to_string();
     if !url.starts_with("https://") {
@@ -158,19 +211,26 @@ pub async fn download_and_install_launcher_update(
         return Err("Expected SHA-256 must be 64 hex characters.".to_string());
     }
 
-    // Panel zwraca czesto URL bez ".exe" w sciezce (np. /api/public/launcher/download) — i tak serwuje .exe.
-    let url_l = url.to_lowercase();
-    let ext = if url_l.contains(".exe")
-        || url_l.contains("launcher/download")
-        || url_l.ends_with("/download")
-    {
-        ".exe"
-    } else {
-        ".bin"
-    };
+    let client = build_http_client()?;
+    let basename = resolve_installer_basename(
+        &client,
+        &url,
+        installer_filename.as_deref(),
+    )
+    .await?;
+    let ext = std::path::Path::new(&basename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{}", e.to_ascii_lowercase()))
+        .ok_or_else(|| "Instalator z API nie ma rozszerzenia w nazwie.".to_string())?;
+
+    #[cfg(target_os = "windows")]
+    if ext != ".exe" {
+        return Err("Windows: wymagany plik .exe (instalator).".to_string());
+    }
+
     let out_path = std::env::temp_dir().join(format!("CreateCrafts-launcher-update{ext}"));
 
-    let client = build_http_client()?;
     let resp = client
         .get(&url)
         .send()
@@ -208,9 +268,6 @@ pub async fn download_and_install_launcher_update(
 
     #[cfg(target_os = "windows")]
     {
-        if ext != ".exe" {
-            return Err("Windows: wymagany plik .exe (instalator).".to_string());
-        }
         let path = out_path.as_path();
         if exe_looks_like_nsis_installer(path) {
             Command::new(path)

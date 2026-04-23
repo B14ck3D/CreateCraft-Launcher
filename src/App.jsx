@@ -13,6 +13,7 @@ import {
   Cpu,
   RefreshCw,
   FolderOpen,
+  Home,
   Sparkles,
 } from 'lucide-react';
 import gamePack from './gamePackConstants.json';
@@ -273,7 +274,7 @@ export default function App() {
         if (window.launcher.onLauncherCrash) {
           const u3 = await window.launcher.onLauncherCrash((msg) => {
             if (!cancelled) {
-              setLaunchError(String(msg || 'Nieznany błąd uruchomienia.'));
+              setLaunchError(String(msg || 'Nieznany blad uruchomienia.'));
             }
           });
           if (cancelled) {
@@ -323,7 +324,7 @@ export default function App() {
   const handleScheduleForceModResync = async () => {
     setForceModResyncNotice(null);
     if (!window.launcher?.createcraftsForceModResyncNext) {
-      setForceModResyncNotice('Dostępne tylko w zbudowanej aplikacji (Tauri).');
+      setForceModResyncNotice('Dostepne tylko w zbudowanej aplikacji (Tauri).');
       return;
     }
     const r = await window.launcher.createcraftsForceModResyncNext();
@@ -331,11 +332,11 @@ export default function App() {
       setForceModResyncPending(true);
       setForceModResyncNotice(
         r?.removedModsDir
-          ? 'Folder modów został usunięty. Przy następnym uruchomieniu gry wszystkie mody pobiorą się od zera.'
-          : 'Przy następnym uruchomieniu gry wszystkie mody z listy zostaną pobrane ponownie.'
+          ? 'Folder modow zostal usuniety. Przy nastepnym uruchomieniu gry wszystkie mody pobiora sie od zera.'
+          : 'Przy nastepnym uruchomieniu gry wszystkie mody z listy zostana pobrane ponownie.'
       );
     } else {
-      setForceModResyncNotice(r?.error || 'Nie udało się zapisać żądania.');
+      setForceModResyncNotice(r?.error || 'Nie udalo sie zapisac zadania.');
     }
   };
 
@@ -370,17 +371,17 @@ export default function App() {
       case 'verifying':
         return 'Weryfikacja konta i sesji...';
       case 'checking-files':
-        return 'Sprawdzanie plików modpacku (serwer CreateCrafts)...';
+        return 'Sprawdzanie plikow modpacku (serwer CreateCrafts)...';
       case 'checking-java':
         return 'Sprawdzanie Java (wymagane JDK 21)...';
       case 'mods-sync':
-        return `Pobieranie / aktualizacja modów (NeoForge ${gamePack.neoForgeInstallerVersion})...`;
+        return `Pobieranie / aktualizacja modow (NeoForge ${gamePack.neoForgeInstallerVersion})...`;
       case 'downloading':
         return 'Pobieranie bibliotek Minecraft (launcher)...';
       case 'launching':
         return 'Uruchamianie gry...';
       case 'connected':
-        return 'Gra wystartowała. Miłej zabawy!';
+        return 'Gra wystartowala. Milej zabawy!';
       default:
         return 'Gotowy do gry.';
     }
@@ -427,8 +428,8 @@ export default function App() {
           aria-modal="true"
         >
           <div className="glass-card max-w-lg border-red-500/40 p-6 shadow-2xl">
-            <h3 className="mb-2 font-mc text-[10px] text-destructive">MINECRAFT SIĘ NIE URUCHOMIŁ</h3>
-            <pre className="mb-4 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border border-glass-border bg-background/80 p-3 font-mono text-xs text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <h3 className="mb-2 font-mc text-[10px] text-destructive">MINECRAFT SIE NIE URUCHOMIL</h3>
+            <pre className="select-text mb-4 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border border-glass-border bg-background/80 p-3 font-mono text-xs text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {launchError}
             </pre>
             {launchError && /JDK|Java|java/.test(launchError) && window.launcher?.openExternalUrl && (
@@ -500,7 +501,7 @@ export default function App() {
 
             {forceModResyncPending && (
               <div className="mb-6 border border-primary/35 bg-primary/10 px-4 py-3 font-pixel text-base text-primary">
-                Zaplanowano ponowną synchronizację modów przy <strong>następnym</strong> starcie gry.
+                Zaplanowano ponowna synchronizacje modow przy <strong>nastepnym</strong> starcie gry.
               </div>
             )}
             {forceModResyncNotice && (
@@ -514,7 +515,7 @@ export default function App() {
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Java</p>
                   <p className="mb-3 font-pixel text-base leading-relaxed text-muted-foreground">
-                    Wymagane JDK 21 — launcher używa Javy ze środowiska (np. PATH, JAVA_HOME).
+                    Wymagane JDK 21 - launcher uzywa Javy ze srodowiska (np. PATH, JAVA_HOME).
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {window.launcher?.openExternalUrl && (
@@ -530,7 +531,7 @@ export default function App() {
                 </section>
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
-                    Wydajność
+                    Wydajnosc
                   </p>
                   <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
@@ -538,9 +539,9 @@ export default function App() {
                         <Cpu size={22} strokeWidth={2} />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="font-pixel text-lg font-bold text-foreground">Pamięć RAM (heap)</h3>
+                        <h3 className="font-pixel text-lg font-bold text-foreground">Pamiec RAM (heap)</h3>
                         <p className="mt-1 font-pixel text-base leading-relaxed text-muted-foreground">
-                          Przydział dla JVM Minecrafta. Większy modpack zwykle 6–12 GB. Wartość jest zapisywana od razu.
+                          Przydzial dla JVM Minecrafta. Wiekszy modpack zwykle 6-12 GB. Wartosc jest zapisywana od razu.
                         </p>
                       </div>
                     </div>
@@ -572,7 +573,7 @@ export default function App() {
                     className="settings-range-slider mt-5 h-3 w-full cursor-pointer"
                   />
                   <p className="mt-3 font-pixel text-sm text-muted-foreground">
-                    <span className="font-semibold text-foreground">{ramSize} GB</span> — używane przy następnym
+                    <span className="font-semibold text-foreground">{ramSize} GB</span> - uzywane przy nastepnym
                     uruchomieniu gry.
                   </p>
                 </section>
@@ -586,10 +587,10 @@ export default function App() {
                       <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
                         Paczka z serwera
                       </p>
-                      <h3 className="font-pixel text-lg font-bold text-foreground">Synchronizacja modów</h3>
+                      <h3 className="font-pixel text-lg font-bold text-foreground">Synchronizacja modow</h3>
                       <p className="mt-1 max-w-md font-pixel text-base leading-relaxed text-muted-foreground">
-                        Usuwa folder modów i wymusza pełne pobranie paczki z indeksu przy kolejnym starcie gry (nie
-                        kasuje świata).
+                        Usuwa folder modow i wymusza pelne pobranie paczki z indeksu przy kolejnym starcie gry (nie
+                        kasuje swiata).
                       </p>
                     </div>
                   </div>
@@ -599,7 +600,7 @@ export default function App() {
                     className="btn-mc btn-mc-primary inline-flex shrink-0 items-center justify-center gap-2 px-5 py-3"
                   >
                     <RefreshCw size={18} />
-                    Wymuś weryfikację
+                    Wymusz weryfikacje
                   </button>
                 </section>
 
@@ -612,7 +613,7 @@ export default function App() {
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                           Aktywna sesja
                         </p>
-                        <p className="font-pixel text-lg font-bold text-foreground">{user?.name ?? '—'}</p>
+                        <p className="font-pixel text-lg font-bold text-foreground">{user?.name ?? '-'}</p>
                         <p className="mt-0.5 flex items-center gap-1.5 font-pixel text-base text-muted-foreground">
                           {user?.type === 'premium' ? (
                             <ShieldCheck size={14} className="text-primary" />
@@ -629,7 +630,7 @@ export default function App() {
                       className="btn-mc inline-flex items-center justify-center gap-2 border-destructive/35 bg-destructive/10 px-6 py-3 text-destructive hover:bg-destructive/20"
                     >
                       <LogOut size={18} />
-                      Wyloguj się
+                      Wyloguj sie
                     </button>
                   </div>
                 </section>
@@ -659,11 +660,11 @@ function LauncherUpdateBanner({ loading, downloading, data, onInstall }) {
     >
       <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between lg:px-8">
         <div className="min-w-0 font-pixel text-base text-foreground">
-          {loading && <span className="text-muted-foreground">Sprawdzanie aktualizacji launchera…</span>}
+          {loading && <span className="text-muted-foreground">Sprawdzanie aktualizacji launchera...</span>}
           {!loading && avail && (
             <span className="leading-snug">
-              Dostępna nowa wersja: <strong className="text-primary">{data.remoteVersion}</strong>
-              {data.notes ? ` — ${data.notes}` : ''}
+              Dostepna nowa wersja: <strong className="text-primary">{data.remoteVersion}</strong>
+              {data.notes ? ` - ${data.notes}` : ''}
             </span>
           )}
           {!loading && err && <span className="leading-snug text-muted-foreground">{err}</span>}
@@ -679,7 +680,7 @@ function LauncherUpdateBanner({ loading, downloading, data, onInstall }) {
             {downloading ? (
               <>
                 <Loader2 size={14} className="animate-spin img-crisp" />
-                POBIERANIE…
+                POBIERANIE...
               </>
             ) : (
               <>
@@ -695,7 +696,7 @@ function LauncherUpdateBanner({ loading, downloading, data, onInstall }) {
 }
 
 function formatBytes(n) {
-  if (n == null || typeof n !== 'number' || !Number.isFinite(n)) return '—';
+  if (n == null || typeof n !== 'number' || !Number.isFinite(n)) return '-';
   const units = ['B', 'KB', 'MB', 'GB'];
   let i = 0;
   let v = n;
@@ -724,7 +725,7 @@ function ModsListPanel() {
     try {
       const data = await window.launcher.createcraftsModsInfo();
       if (data && data.ok === false) {
-        setErr(data.error || 'Błąd listy modów');
+        setErr(data.error || 'Blad listy modow');
         setInfo({
           gameRoot: data.gameRoot,
           modsDir: data.modsDir,
@@ -762,37 +763,37 @@ function ModsListPanel() {
 
   return (
     <>
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-8 flex flex-col gap-3">
         <div>
           <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-brass-light">CreateCrafts</p>
           <h2 className="font-mc text-lg text-foreground sm:text-xl">MODY Z SERWERA</h2>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full min-w-0 flex-row flex-nowrap items-stretch gap-2 overflow-x-auto pb-0.5 sm:justify-end">
           <button
             type="button"
             onClick={load}
             disabled={loading}
-            className="btn-mc inline-flex items-center gap-2 disabled:opacity-50"
+            className="btn-mc inline-flex shrink-0 items-center gap-2 disabled:opacity-50"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            Odśwież
+            Odswiez
           </button>
           <button
             type="button"
             onClick={openModsDir}
             disabled={!info?.modsDir}
-            className="btn-mc btn-mc-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-mc btn-mc-primary inline-flex shrink-0 items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <FolderOpen size={16} />
-            Folder modów
+            Folder modow
           </button>
           <button
             type="button"
             onClick={openGameRoot}
             disabled={!info?.gameRoot}
-            className="btn-mc inline-flex items-center gap-2 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-mc inline-flex shrink-0 items-center gap-2 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <FolderOpen size={16} />
+            <Home size={16} />
             Katalog gry
           </button>
         </div>
@@ -805,7 +806,7 @@ function ModsListPanel() {
       {loading && (
         <div className="flex items-center gap-2 font-pixel text-base text-muted-foreground">
           <Loader2 className="animate-spin" size={18} />
-          Ładowanie listy z serwera…
+          Ladowanie listy z serwera...
         </div>
       )}
       {err && (
@@ -816,12 +817,12 @@ function ModsListPanel() {
 
       {info?.mock && (
         <p className="font-pixel text-base text-muted-foreground">
-          Podgląd w przeglądarce — pełna lista w zbudowanej aplikacji.
+          Podglad w przegladarce - pelna lista w zbudowanej aplikacji.
         </p>
       )}
 
       {!loading && !err && info?.mods?.length === 0 && !info?.mock && (
-        <p className="font-pixel text-base text-muted-foreground">Brak pozycji na liście.</p>
+        <p className="font-pixel text-base text-muted-foreground">Brak pozycji na liscie.</p>
       )}
 
       {!loading && info?.mods && info.mods.length > 0 && (
@@ -855,7 +856,7 @@ function ModsListPanel() {
             ))}
           </ul>
           <div className="border-t border-glass-border bg-card/30 px-4 py-2 text-center text-[11px] text-muted-foreground">
-            {info.count} plików
+            {info.count} plikow
             {info.baseUrl ? (
               <>
                 {' '}
@@ -954,7 +955,7 @@ function LoginScreen({ onProfileLogin }) {
       const msg =
         typeof err === 'string'
           ? err
-          : err?.message || err?.toString?.() || 'Logowanie Microsoft nie powiodło się.';
+          : err?.message || err?.toString?.() || 'Logowanie Microsoft nie powiodlo sie.';
       setLoginError(msg);
     } finally {
       setLoading(false);
@@ -1001,14 +1002,14 @@ function LoginScreen({ onProfileLogin }) {
         <div className="absolute inset-0 bg-grid opacity-30" />
       </div>
 
-      <div className="glass-card panel-ticks relative z-10 flex w-full max-w-md flex-col items-center border border-brass-dim/25 p-8 shadow-2xl">
+      <div className="glass-card relative z-10 flex w-full max-w-md flex-col items-center border border-brass-dim/25 p-8 shadow-2xl">
         <div className="mb-6 flex h-16 w-16 items-center justify-center border border-glass-border bg-card/80 shadow-inner transition-all hover:border-primary/40">
           <Key size={28} className="text-primary transition-transform group-hover:scale-110 img-crisp" />
         </div>
 
         <h2 className="mb-2 font-mc text-sm tracking-tight text-foreground">AUTORYZACJA</h2>
         <p className="mb-6 px-4 text-center text-base text-muted-foreground">
-          Wybierz zapisaną sesję albo dodaj nowe konto.
+          Wybierz zapisane sesje albo dodaj nowe konto.
         </p>
 
         {loginError && (
@@ -1044,7 +1045,7 @@ function LoginScreen({ onProfileLogin }) {
                     onClick={(ev) => removeStoredProfile(ev, p.id)}
                     onKeyDown={(ev) => ev.key === 'Enter' && removeStoredProfile(ev, p.id)}
                     className="rounded-lg p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/15 hover:text-destructive group-hover/row:opacity-100"
-                    title="Usuń sesję"
+                    title="Usun sesje"
                   >
                     <Trash2 size={16} />
                   </span>
@@ -1101,7 +1102,7 @@ function LoginScreen({ onProfileLogin }) {
                   type="text"
                   value={offlineNick}
                   onChange={(e) => setOfflineNick(e.target.value)}
-                  placeholder="TWÓJ NICK"
+                  placeholder="TWOJ NICK"
                   className="w-full rounded-xl border border-glass-border bg-background/90 py-3.5 pl-11 pr-4 font-medium text-foreground transition-all placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   autoFocus
                 />
@@ -1113,7 +1114,7 @@ function LoginScreen({ onProfileLogin }) {
                 onClick={() => setMode('select')}
                 className="rounded-xl border border-glass-border bg-muted/50 px-5 py-3.5 font-bold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                Powrót
+                Powrot
               </button>
               <button
                 type="submit"
@@ -1125,7 +1126,7 @@ function LoginScreen({ onProfileLogin }) {
                 ) : (
                   <Play size={18} className="fill-current transition-transform group-hover:scale-110" />
                 )}
-                <span>Zapisz i wejdź</span>
+                <span>Zapisz i wejdz</span>
               </button>
             </div>
           </form>
@@ -1139,33 +1140,38 @@ function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="relative z-50 flex h-8 select-none items-center justify-between border-b border-brass-dim/30 bg-background/95 pl-4 pr-2 backdrop-blur-md"
+      className="relative z-50 flex h-8 select-none items-center justify-between border-b border-stone-light/30 bg-background pl-3 pr-1"
     >
       <div className="flex items-center gap-2 text-xs font-semibold tracking-wider text-muted-foreground" data-tauri-drag-region>
-        <img src={pub('mainlogo.png')} alt="" className="h-5 w-5 shrink-0 object-contain img-crisp" width={20} height={20} />
-        <span>CREATECRAFTS LAUNCHER</span>
+        <span className="inline-flex h-5 w-5 shrink-0 overflow-hidden border border-stone-light/40 bg-card">
+          <img src={pub('icon.png')} alt="" className="h-full w-full object-cover img-crisp" width={20} height={20} />
+        </span>
+        <span className="font-mc text-[7px] tracking-wide text-foreground/90">CREATECRAFTS</span>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0">
         <button
           type="button"
           onClick={() => window.launcher?.minimize()}
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-none border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Minimalizuj"
         >
-          <Minus size={14} />
+          <Minus size={14} strokeWidth={2.25} />
         </button>
         <button
           type="button"
           onClick={() => window.launcher?.maximize()}
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-none border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Maksymalizuj"
         >
-          <Square size={12} />
+          <Square size={12} strokeWidth={2.25} />
         </button>
         <button
           type="button"
           onClick={() => window.launcher?.close()}
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-none border border-transparent text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+          aria-label="Zamknij"
         >
-          <X size={14} />
+          <X size={14} strokeWidth={2.25} />
         </button>
       </div>
     </div>
@@ -1176,16 +1182,18 @@ function IntroAnimation() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
       <div className="mb-10 flex flex-col items-center gap-6">
-        <img
-          src={pub('mainlogo.png')}
-          alt=""
-          width={120}
-          height={92}
-          className="h-24 w-auto object-contain img-crisp"
-        />
+        <span className="inline-flex h-24 w-24 overflow-hidden border border-stone-light/35 bg-card shadow-md">
+          <img
+            src={pub('icon.png')}
+            alt=""
+            width={96}
+            height={96}
+            className="h-full w-full object-cover img-crisp"
+          />
+        </span>
         <div className="flex flex-col items-center text-center">
           <span className="font-mc text-sm tracking-widest text-foreground">CREATE</span>
-          <span className="font-mc text-xs tracking-[0.25em] text-gradient-emerald">CRAFT</span>
+          <span className="font-mc text-xs tracking-[0.25em] text-brass-light">CRAFT</span>
         </div>
       </div>
       <div className="h-2 w-64 overflow-hidden border border-glass-border bg-muted">

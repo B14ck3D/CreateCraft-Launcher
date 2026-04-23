@@ -33,10 +33,10 @@ export default function LauncherMainPanel({ user, connectionState, progress, sta
               <h1 className="mb-3 font-mc text-lg leading-snug text-foreground sm:text-xl lg:text-2xl">
                 WITAJ,
                 <br />
-                <span className="text-gradient-emerald">{(user?.name || 'GRACZ').toUpperCase()}</span>
+                <span className="text-pixel-gold">{(user?.name || 'GRACZ').toUpperCase()}</span>
               </h1>
               <p className="mb-6 max-w-md font-pixel text-lg leading-snug text-muted-foreground">
-                Mody i NeoForge synchronizują się z serwerem. Naciśnij Graj, gdy będziesz gotowy.
+                Mody i NeoForge sa synchronizowane z serwerem. Nacisnij Graj, gdy bedziesz gotowy.
               </p>
 
               <button

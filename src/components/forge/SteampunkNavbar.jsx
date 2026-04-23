@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const pub = (file) => `${import.meta.env.BASE_URL}${file}`;
 
 const defaultNav = [
-  { id: 'home', label: 'GŁÓWNA' },
+  { id: 'home', label: 'GLOWNA' },
   { id: 'mods', label: 'MODY' },
   { id: 'settings', label: 'USTAWIENIA' },
 ];
@@ -29,7 +29,7 @@ export default function SteampunkNavbar({ activeTab, onSelectTab, navItems = def
             className="h-9 w-9 shrink-0 object-contain img-crisp"
           />
           <span className="font-mc text-[10px] leading-tight tracking-wide text-foreground sm:text-[11px]">
-            CREATE <span className="text-primary">CRAFT</span>
+            CREATE <span className="text-brass-light">CRAFT</span>
           </span>
         </button>
 
@@ -43,7 +43,7 @@ export default function SteampunkNavbar({ activeTab, onSelectTab, navItems = def
                 setMobileOpen(false);
               }}
               className={`shrink-0 font-mc text-[8px] tracking-widest transition-colors ${
-                activeTab === item.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                activeTab === item.id ? 'text-brass-light' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {item.label}
@@ -56,7 +56,7 @@ export default function SteampunkNavbar({ activeTab, onSelectTab, navItems = def
             type="button"
             className="text-muted-foreground"
             onClick={() => setMobileOpen(!mobileOpen)}
-            aria-label="Menu"
+            aria-label="Otworz menu"
           >
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
@@ -81,7 +81,7 @@ export default function SteampunkNavbar({ activeTab, onSelectTab, navItems = def
                     setMobileOpen(false);
                   }}
                   className={`text-left font-mc text-[9px] tracking-widest transition-colors ${
-                    activeTab === item.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                    activeTab === item.id ? 'text-brass-light' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   {item.label}

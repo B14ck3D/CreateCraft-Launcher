@@ -2,7 +2,7 @@
   "name": "createcrafts-launcher",
   "productName": "CreateCrafts Launcher",
   "version": "1.0.1",
-  "description": "CreateCrafts Launcher — Tauri 2, Minecraft 1.21.1, NeoForge.",
+  "description": "CreateCrafts Launcher - Tauri 2, Minecraft 1.21.1, NeoForge.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,6 +20,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "prep:brand": "node scripts/prepare-branding.cjs",
+    "icons:tauri": "npm run prep:brand && npx tauri icon build/icon.png",
     "embed:mods-key": "node scripts/embed-mods-api-key.cjs",
     "embed:mods-key:stdin": "node scripts/embed-mods-api-key.cjs --stdin"
   },

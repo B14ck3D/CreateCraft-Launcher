@@ -75,6 +75,14 @@
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  input,
+  textarea {
+    user-select: text;
+    -webkit-user-select: text;
   }
 
   h1,
@@ -188,6 +196,11 @@
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+
+  .text-pixel-gold {
+    color: var(--color-brass-light);
+    text-shadow: 2px 2px 0 var(--color-border);
   }
 
   .bg-grid {

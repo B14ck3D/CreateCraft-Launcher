@@ -20,16 +20,22 @@ function copyIfExists(src, dest, label) {
 
 async function writeSquareAppIcon(logoPath, iconPath) {
   const sharp = require('sharp');
-  await sharp(logoPath)
+  let pipeline = sharp(logoPath).ensureAlpha();
+  try {
+    pipeline = pipeline.trim();
+  } catch {
+    /* ignore trim if unsupported for format */
+  }
+  await pipeline
     .resize({
       width: ICON_SIDE,
       height: ICON_SIDE,
-      fit: 'contain',
-      background: ICON_BG,
+      fit: 'cover',
+      position: 'centre',
     })
     .png()
     .toFile(iconPath);
-  console.log(`OK: ${iconPath} (square ${ICON_SIDE}px from logo)`);
+  console.log(`OK: ${iconPath} (square ${ICON_SIDE}px, cover+trim from logo)`);
 }
 
 (async () => {

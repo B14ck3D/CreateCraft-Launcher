@@ -33,7 +33,25 @@ const LAUNCHER_SETTINGS_KEY = 'createcraft_launcher_settings_v1';
 const ADOPTIUM_JDK21_URL =
   'https://adoptium.net/temurin/releases/?package=jdk&version=21';
 
-/** Pas aktualizacji: widoczny tylko gdy jest cos do pokazania (nie zaslania nawigacji). */
+function clampRamGb(n) {
+  const x = typeof n === 'number' ? n : parseInt(String(n), 10);
+  if (!Number.isFinite(x)) return 6;
+  return Math.min(32, Math.max(2, Math.round(x)));
+}
+
+function normalizeLauncherUpdateError(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  const low = s.toLowerCase();
+  if (
+    low.includes('windows update requires') ||
+    (low.includes('nsis') && low.includes('installer'))
+  ) {
+    return 'Windows: wymagany plik .exe (instalator).';
+  }
+  return s;
+}
+
 function launcherUpdateDockVisible(loading, data) {
   if (loading) return true;
   if (!data) return false;
@@ -41,20 +59,6 @@ function launcherUpdateDockVisible(loading, data) {
   if (data.manualHint) return true;
   if (data.ok === false && data.error) return true;
   return Boolean(data.ok && data.updateAvailable);
-}
-
-function normalizeLauncherUpdateError(message) {
-  const s = String(message || '');
-  if (/Windows update requires/i.test(s) && /NSIS/i.test(s)) {
-    return 'Stary komunikat z poprzedniej wersji. Zainstaluj najnowszy launcher z createcrafts.pl - aktualizacja jest obslugiwana inaczej (NSIS + skan pliku).';
-  }
-  return s;
-}
-
-function clampRamGb(n) {
-  const x = typeof n === 'number' ? n : parseInt(String(n), 10);
-  if (!Number.isFinite(x)) return 6;
-  return Math.min(32, Math.max(2, Math.round(x)));
 }
 
 function loadLauncherSettings() {

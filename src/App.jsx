@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Play,
   Loader2,
-  Globe,
   Minus,
   Square,
   X,
@@ -14,13 +13,13 @@ import {
   Cpu,
   RefreshCw,
   FolderOpen,
+  Home,
   Sparkles,
 } from 'lucide-react';
 import gamePack from './gamePackConstants.json';
 import SteampunkNavbar from './components/forge/SteampunkNavbar.jsx';
 import SteampunkFooter from './components/forge/SteampunkFooter.jsx';
 import LauncherMainPanel from './components/forge/LauncherMainPanel.jsx';
-import GearDecoration from './components/forge/GearDecoration.jsx';
 import CogwheelFrame from './components/forge/CogwheelFrame.jsx';
 
 const pub = (file) => `${import.meta.env.BASE_URL}${file}`;
@@ -33,6 +32,24 @@ const LAUNCHER_SETTINGS_KEY = 'createcraft_launcher_settings_v1';
 
 const ADOPTIUM_JDK21_URL =
   'https://adoptium.net/temurin/releases/?package=jdk&version=21';
+
+/** Pas aktualizacji: widoczny tylko gdy jest cos do pokazania (nie zaslania nawigacji). */
+function launcherUpdateDockVisible(loading, data) {
+  if (loading) return true;
+  if (!data) return false;
+  if (data.installError) return true;
+  if (data.manualHint) return true;
+  if (data.ok === false && data.error) return true;
+  return Boolean(data.ok && data.updateAvailable);
+}
+
+function normalizeLauncherUpdateError(message) {
+  const s = String(message || '');
+  if (/Windows update requires/i.test(s) && /NSIS/i.test(s)) {
+    return 'Stary komunikat z poprzedniej wersji. Zainstaluj najnowszy launcher z createcrafts.pl - aktualizacja jest obslugiwana inaczej (NSIS + skan pliku).';
+  }
+  return s;
+}
 
 function clampRamGb(n) {
   const x = typeof n === 'number' ? n : parseInt(String(n), 10);
@@ -106,6 +123,10 @@ export default function App() {
   const [launchError, setLaunchError] = useState(null);
   const [forceModResyncPending, setForceModResyncPending] = useState(false);
   const [forceModResyncNotice, setForceModResyncNotice] = useState(null);
+  const [appVersion, setAppVersion] = useState('');
+  const [launcherUpdate, setLauncherUpdate] = useState(null);
+  const [launcherUpdateLoading, setLauncherUpdateLoading] = useState(false);
+  const [launcherUpdateDownloading, setLauncherUpdateDownloading] = useState(false);
 
   useEffect(() => {
     const blockReloadShortcuts = (e) => {
@@ -179,6 +200,37 @@ export default function App() {
     saveLauncherSettings({ ramGb: v });
   }, []);
 
+  const runLauncherUpdateInstall = useCallback(async () => {
+    if (!window.launcher?.downloadAndInstallLauncherUpdate) return;
+    const u = launcherUpdate?.downloadUrl;
+    const h = launcherUpdate?.expectedSha256;
+    if (!u || !h) return;
+    setLauncherUpdateDownloading(true);
+    setLauncherUpdate((prev) => ({
+      ...(prev || {}),
+      installError: null,
+      manualHint: null,
+    }));
+    try {
+      const r = await window.launcher.downloadAndInstallLauncherUpdate(u, h);
+      if (r && r.manual === true && r.message) {
+        setLauncherUpdate((prev) => ({
+          ...(prev || {}),
+          manualHint: String(r.message),
+          installError: null,
+        }));
+      }
+    } catch (e) {
+      setLauncherUpdate((prev) => ({
+        ...(prev || {}),
+        installError: normalizeLauncherUpdateError(e?.message || e),
+        manualHint: null,
+      }));
+    } finally {
+      setLauncherUpdateDownloading(false);
+    }
+  }, [launcherUpdate]);
+
   useEffect(() => {
     if (!introFinished) return undefined;
     if (!window.launcher?.createcraftsForceModResyncPending) return undefined;
@@ -190,6 +242,40 @@ export default function App() {
       cancelled = true;
     };
   }, [introFinished, activeTab]);
+
+  useEffect(() => {
+    if (!introFinished) return undefined;
+    let cancelled = false;
+    if (window.launcher?.getAppVersion) {
+      window.launcher.getAppVersion().then((v) => {
+        if (!cancelled && typeof v === 'string') setAppVersion(v);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [introFinished]);
+
+  useEffect(() => {
+    if (!introFinished) return undefined;
+    if (!window.launcher?.checkLauncherUpdate) return undefined;
+    let cancelled = false;
+    setLauncherUpdateLoading(true);
+    window.launcher
+      .checkLauncherUpdate()
+      .then((r) => {
+        if (!cancelled) setLauncherUpdate(r);
+      })
+      .catch(() => {
+        if (!cancelled) setLauncherUpdate({ ok: false, updateAvailable: false });
+      })
+      .finally(() => {
+        if (!cancelled) setLauncherUpdateLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [introFinished]);
 
   useEffect(() => {
     if (!window.launcher) return undefined;
@@ -219,7 +305,7 @@ export default function App() {
         if (window.launcher.onLauncherCrash) {
           const u3 = await window.launcher.onLauncherCrash((msg) => {
             if (!cancelled) {
-              setLaunchError(String(msg || 'Nieznany błąd uruchomienia.'));
+              setLaunchError(String(msg || 'Nieznany blad uruchomienia.'));
             }
           });
           if (cancelled) {
@@ -228,9 +314,7 @@ export default function App() {
           }
           unsubs.push(u3);
         }
-      } catch {
-        /* ignore */
-      }
+      } catch {}
     })();
 
     return () => {
@@ -271,7 +355,7 @@ export default function App() {
   const handleScheduleForceModResync = async () => {
     setForceModResyncNotice(null);
     if (!window.launcher?.createcraftsForceModResyncNext) {
-      setForceModResyncNotice('Dostępne po zbudowaniu aplikacji (Tauri).');
+      setForceModResyncNotice('Dostepne tylko w zbudowanej aplikacji (Tauri).');
       return;
     }
     const r = await window.launcher.createcraftsForceModResyncNext();
@@ -279,11 +363,11 @@ export default function App() {
       setForceModResyncPending(true);
       setForceModResyncNotice(
         r?.removedModsDir
-          ? 'Folder modów został usunięty. Przy następnym uruchomieniu gry wszystkie mody pobiorą się od zera.'
-          : 'Przy następnym uruchomieniu gry wszystkie mody z listy zostaną pobrane ponownie.'
+          ? 'Folder modow zostal usuniety. Przy nastepnym uruchomieniu gry wszystkie mody pobiora sie od zera.'
+          : 'Przy nastepnym uruchomieniu gry wszystkie mody z listy zostana pobrane ponownie.'
       );
     } else {
-      setForceModResyncNotice(r?.error || 'Nie udało się zapisać żądania.');
+      setForceModResyncNotice(r?.error || 'Nie udalo sie zapisac zadania.');
     }
   };
 
@@ -318,17 +402,17 @@ export default function App() {
       case 'verifying':
         return 'Weryfikacja konta i sesji...';
       case 'checking-files':
-        return 'Sprawdzanie plików modpacku (serwer CreateCrafts)...';
+        return 'Sprawdzanie plikow modpacku (serwer CreateCrafts)...';
       case 'checking-java':
         return 'Sprawdzanie Java (wymagane JDK 21)...';
       case 'mods-sync':
-        return `Pobieranie / aktualizacja modów (NeoForge ${gamePack.neoForgeInstallerVersion})…`;
+        return `Pobieranie / aktualizacja modow (NeoForge ${gamePack.neoForgeInstallerVersion})...`;
       case 'downloading':
         return 'Pobieranie bibliotek Minecraft (launcher)...';
       case 'launching':
         return 'Uruchamianie gry...';
       case 'connected':
-        return 'Gra wystartowała. Miłej zabawy!';
+        return 'Gra wystartowala. Milej zabawy!';
       default:
         return 'Gotowy do gry.';
     }
@@ -344,24 +428,37 @@ export default function App() {
     setUser(profile);
   }, []);
 
+  const updateDockOpen = launcherUpdateDockVisible(launcherUpdateLoading, launcherUpdate);
+  const shellBottomPad = updateDockOpen ? 'pb-28' : '';
+
   if (!introFinished) {
     return <IntroAnimation />;
   }
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25">
+      <div
+        className={`relative flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25 ${shellBottomPad}`}
+      >
         <TitleBar />
         <div className="relative min-h-0 flex-1">
           <LoginScreen onProfileLogin={handleProfileLogin} />
         </div>
-        <SteampunkFooter />
+        <SteampunkFooter appVersion={appVersion} />
+        <LauncherUpdateBanner
+          loading={launcherUpdateLoading}
+          downloading={launcherUpdateDownloading}
+          data={launcherUpdate}
+          onInstall={runLauncherUpdateInstall}
+        />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25">
+    <div
+      className={`relative flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25 ${shellBottomPad}`}
+    >
       {launchError && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
@@ -369,15 +466,15 @@ export default function App() {
           aria-modal="true"
         >
           <div className="glass-card max-w-lg border-red-500/40 p-6 shadow-2xl">
-            <h3 className="mb-2 text-lg font-black text-destructive">Minecraft się nie uruchomił</h3>
-            <pre className="mb-4 max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-glass-border bg-background/80 p-3 font-mono text-xs text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <h3 className="mb-2 font-mc text-[10px] text-destructive">MINECRAFT SIE NIE URUCHOMIL</h3>
+            <pre className="select-text mb-4 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border border-glass-border bg-background/80 p-3 font-mono text-xs text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {launchError}
             </pre>
             {launchError && /JDK|Java|java/.test(launchError) && window.launcher?.openExternalUrl && (
               <button
                 type="button"
                 onClick={() => openAdoptiumJdkPage()}
-                className="mb-3 w-full rounded-xl border border-glass-border bg-card/60 py-3 text-sm font-bold text-foreground transition-colors hover:bg-muted/80"
+                className="btn-mc mb-3 w-full"
               >
                 Pobierz JDK 21 (Temurin)
               </button>
@@ -387,7 +484,7 @@ export default function App() {
               onClick={() => {
                 setLaunchError(null);
               }}
-              className="w-full rounded-xl border border-glass-border bg-muted py-3 text-sm font-bold text-foreground transition-colors hover:bg-muted/80"
+              className="btn-mc w-full"
             >
               Zamknij
             </button>
@@ -398,9 +495,6 @@ export default function App() {
       <SteampunkNavbar activeTab={activeTab} onSelectTab={setActiveTab} />
 
       <main className="relative flex-1 overflow-y-auto pt-[calc(2rem+3.5rem)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <GearDecoration size={160} className="pointer-events-none absolute -right-16 top-24 opacity-15" />
-        <GearDecoration size={100} className="pointer-events-none absolute -left-10 bottom-32 opacity-10" reverse />
-
         {activeTab === 'home' && (
           <div className="pb-16">
             <LauncherMainPanel
@@ -424,26 +518,26 @@ export default function App() {
             <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-brass-light">CreateCrafts</p>
-                <h2 className="text-3xl font-black text-foreground">Ustawienia</h2>
+                <h2 className="font-mc text-lg text-foreground sm:text-xl">USTAWIENIA</h2>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-glass-border bg-muted/50 px-3 py-1.5 text-[11px] font-semibold text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5 border border-glass-border bg-muted/50 px-3 py-1.5 font-pixel text-base text-muted-foreground">
                   <Sparkles size={12} className="text-primary" />
                   MC {gamePack.minecraftVersion}
                 </span>
-                <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/12 px-3 py-1.5 text-[11px] font-bold text-primary">
+                <span className="inline-flex items-center border border-primary/30 bg-primary/12 px-3 py-1.5 font-pixel text-base font-bold text-primary">
                   NeoForge {gamePack.neoForgeInstallerVersion}
                 </span>
               </div>
             </div>
 
             {forceModResyncPending && (
-              <div className="mb-6 rounded-xl border border-primary/35 bg-primary/10 px-4 py-3 text-sm text-primary">
-                Zaplanowano ponowną synchronizację modów przy <strong>następnym</strong> starcie gry.
+              <div className="mb-6 border border-primary/35 bg-primary/10 px-4 py-3 font-pixel text-base text-primary">
+                Zaplanowano ponowna synchronizacje modow przy <strong>nastepnym</strong> starcie gry.
               </div>
             )}
             {forceModResyncNotice && (
-              <div className="mb-6 rounded-xl border border-glass-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              <div className="mb-6 border border-glass-border bg-muted/40 px-4 py-3 font-pixel text-base text-muted-foreground">
                 {forceModResyncNotice}
               </div>
             )}
@@ -452,15 +546,15 @@ export default function App() {
               <div className="divide-y divide-glass-border/70">
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Java</p>
-                  <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-                    Wymagane JDK 21 — launcher używa Javy ze środowiska (np. PATH, JAVA_HOME).
+                  <p className="mb-3 font-pixel text-base leading-relaxed text-muted-foreground">
+                    Wymagane JDK 21 - launcher uzywa Javy ze srodowiska (np. PATH, JAVA_HOME).
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {window.launcher?.openExternalUrl && (
                       <button
                         type="button"
                         onClick={() => openAdoptiumJdkPage()}
-                        className="rounded-xl border border-glass-border bg-muted/50 px-4 py-2.5 text-sm font-bold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                        className="btn-mc"
                       >
                         Pobierz JDK 21 (Temurin)
                       </button>
@@ -469,21 +563,21 @@ export default function App() {
                 </section>
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
-                    Wydajność
+                    Wydajnosc
                   </p>
                   <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-glass-border bg-primary/10 text-primary">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center border border-glass-border bg-primary/10 text-primary">
                         <Cpu size={22} strokeWidth={2} />
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-lg font-bold text-foreground">Pamięć RAM (heap)</h3>
-                        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                          Przydział dla JVM Minecrafta. Większy modpack zwykle 6–12 GB. Wartość jest zapisywana od razu.
+                        <h3 className="font-pixel text-lg font-bold text-foreground">Pamiec RAM (heap)</h3>
+                        <p className="mt-1 font-pixel text-base leading-relaxed text-muted-foreground">
+                          Przydzial dla JVM Minecrafta. Wiekszy modpack zwykle 6-12 GB. Wartosc jest zapisywana od razu.
                         </p>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2 self-start rounded-2xl border border-glass-border bg-card/50 px-4 py-2.5 sm:self-center">
+                    <div className="flex shrink-0 items-center gap-2 self-start border border-glass-border bg-card/50 px-4 py-2.5 sm:self-center">
                       <input
                         type="number"
                         min={2}
@@ -510,35 +604,35 @@ export default function App() {
                     onChange={(e) => updateRamGb(parseInt(e.target.value, 10))}
                     className="settings-range-slider mt-5 h-3 w-full cursor-pointer"
                   />
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    <span className="font-semibold text-foreground">{ramSize} GB</span> — używane przy następnym
+                  <p className="mt-3 font-pixel text-sm text-muted-foreground">
+                    <span className="font-semibold text-foreground">{ramSize} GB</span> - uzywane przy nastepnym
                     uruchomieniu gry.
                   </p>
                 </section>
 
                 <section className="flex flex-col gap-5 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-7 sm:py-7">
                   <div className="flex min-w-0 items-start gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-glass-border bg-secondary/10 text-secondary">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center border border-glass-border bg-secondary/10 text-secondary">
                       <RefreshCw size={22} strokeWidth={2} />
                     </div>
                     <div>
                       <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
                         Paczka z serwera
                       </p>
-                      <h3 className="text-lg font-bold text-foreground">Synchronizacja modów</h3>
-                      <p className="mt-1 max-w-md text-sm leading-relaxed text-muted-foreground">
-                        Usuwa folder modów i wymusza pełne pobranie paczki z indeksu createcrafts.pl przy kolejnym
-                        starcie gry (nie kasuje świata).
+                      <h3 className="font-pixel text-lg font-bold text-foreground">Synchronizacja modow</h3>
+                      <p className="mt-1 max-w-md font-pixel text-base leading-relaxed text-muted-foreground">
+                        Usuwa folder modow i wymusza pelne pobranie paczki z indeksu przy kolejnym starcie gry (nie
+                        kasuje swiata).
                       </p>
                     </div>
                   </div>
                   <button
                     type="button"
                     onClick={handleScheduleForceModResync}
-                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-primary/40 bg-primary/15 px-5 py-3 text-sm font-bold text-primary transition-colors hover:bg-primary/25"
+                    className="btn-mc btn-mc-primary inline-flex shrink-0 items-center justify-center gap-2 px-5 py-3"
                   >
                     <RefreshCw size={18} />
-                    Wymuś weryfikację
+                    Wymusz weryfikacje
                   </button>
                 </section>
 
@@ -546,13 +640,13 @@ export default function App() {
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Konto</p>
                   <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-4">
-                      <ProfileAvatar profile={user} className="h-16 w-16 rounded-2xl border border-glass-border text-lg" />
+                      <ProfileAvatar profile={user} className="h-16 w-16 border border-glass-border text-lg" />
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                           Aktywna sesja
                         </p>
-                        <p className="text-lg font-bold text-foreground">{user?.name ?? '—'}</p>
-                        <p className="mt-0.5 flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <p className="font-pixel text-lg font-bold text-foreground">{user?.name ?? '-'}</p>
+                        <p className="mt-0.5 flex items-center gap-1.5 font-pixel text-base text-muted-foreground">
                           {user?.type === 'premium' ? (
                             <ShieldCheck size={14} className="text-primary" />
                           ) : (
@@ -565,10 +659,10 @@ export default function App() {
                     <button
                       type="button"
                       onClick={handleLogout}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-destructive/35 bg-destructive/10 px-6 py-3 text-sm font-bold text-destructive transition-colors hover:bg-destructive/20"
+                      className="btn-mc inline-flex items-center justify-center gap-2 border-destructive/35 bg-destructive/10 px-6 py-3 text-destructive hover:bg-destructive/20"
                     >
                       <LogOut size={18} />
-                      Wyloguj się
+                      Wyloguj sie
                     </button>
                   </div>
                 </section>
@@ -577,13 +671,78 @@ export default function App() {
           </div>
         )}
       </main>
-      <SteampunkFooter />
+      <SteampunkFooter appVersion={appVersion} />
+      <LauncherUpdateBanner
+        loading={launcherUpdateLoading}
+        downloading={launcherUpdateDownloading}
+        data={launcherUpdate}
+        onInstall={runLauncherUpdateInstall}
+      />
+    </div>
+  );
+}
+
+function LauncherUpdateBanner({ loading, downloading, data, onInstall }) {
+  if (!data && !loading) return null;
+  const avail = data?.updateAvailable && data?.ok;
+  const err = data?.ok === false ? data?.error : null;
+  const installErr = data?.installError;
+  const manualHint = data?.manualHint;
+
+  if (!loading && !avail && !err && !installErr && !manualHint) return null;
+
+  return (
+    <div
+      className={`fixed bottom-0 left-0 right-0 z-[90] border-t border-stone-light/50 px-4 py-3 shadow-[0_-8px_28px_-6px_rgba(0,0,0,0.55)] backdrop-blur-md ${
+        avail ? 'bg-primary/15' : manualHint ? 'bg-card/95' : installErr ? 'bg-destructive/10' : 'bg-muted/95'
+      }`}
+    >
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+        <div className="min-w-0 space-y-1 font-pixel text-base text-foreground">
+          {loading && <span className="text-muted-foreground">Sprawdzanie aktualizacji launchera...</span>}
+          {!loading && avail && (
+            <span className="block leading-snug">
+              Dostepna nowa wersja: <strong className="text-primary">{data.remoteVersion}</strong>
+              {data.notes ? ` - ${data.notes}` : ''}
+            </span>
+          )}
+          {!loading && err && <span className="block leading-snug text-muted-foreground">{err}</span>}
+          {!loading && installErr && (
+            <span className="block leading-snug text-destructive">
+              {normalizeLauncherUpdateError(installErr)}
+            </span>
+          )}
+          {!loading && manualHint && (
+            <span className="block leading-snug text-muted-foreground">{manualHint}</span>
+          )}
+        </div>
+        {avail && !loading && (
+          <button
+            type="button"
+            disabled={downloading}
+            onClick={() => onInstall()}
+            className="btn-mc btn-mc-primary shrink-0 disabled:opacity-50"
+          >
+            {downloading ? (
+              <>
+                <Loader2 size={14} className="animate-spin img-crisp" />
+                POBIERANIE...
+              </>
+            ) : (
+              <>
+                <RefreshCw size={14} className="img-crisp" />
+                ZAINSTALUJ I ZAMKNIJ
+              </>
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
 function formatBytes(n) {
-  if (n == null || typeof n !== 'number' || !Number.isFinite(n)) return '—';
+  if (n == null || typeof n !== 'number' || !Number.isFinite(n)) return '-';
   const units = ['B', 'KB', 'MB', 'GB'];
   let i = 0;
   let v = n;
@@ -612,7 +771,7 @@ function ModsListPanel() {
     try {
       const data = await window.launcher.createcraftsModsInfo();
       if (data && data.ok === false) {
-        setErr(data.error || 'Błąd listy modów');
+        setErr(data.error || 'Blad listy modow');
         setInfo({
           gameRoot: data.gameRoot,
           modsDir: data.modsDir,
@@ -650,36 +809,37 @@ function ModsListPanel() {
 
   return (
     <>
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-8 flex flex-col gap-3">
         <div>
           <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-brass-light">CreateCrafts</p>
-          <h2 className="text-3xl font-black text-foreground">Mody z serwera</h2>
+          <h2 className="font-mc text-lg text-foreground sm:text-xl">MODY Z SERWERA</h2>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full min-w-0 flex-row flex-nowrap items-stretch gap-2 overflow-x-auto pb-0.5 sm:justify-end">
           <button
             type="button"
             onClick={load}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-muted/60 px-4 py-2.5 text-sm font-bold text-foreground transition-colors hover:bg-muted disabled:opacity-50"
+            className="btn-mc inline-flex shrink-0 items-center gap-2 disabled:opacity-50"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            Odśwież
+            Odswiez
           </button>
           <button
             type="button"
             onClick={openModsDir}
             disabled={!info?.modsDir}
-            className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 text-sm font-bold text-primary transition-colors hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-mc btn-mc-primary inline-flex shrink-0 items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <FolderOpen size={16} />
-            Folder modów
+            Folder modow
           </button>
           <button
             type="button"
             onClick={openGameRoot}
             disabled={!info?.gameRoot}
-            className="inline-flex items-center gap-2 rounded-xl border border-glass-border bg-card/50 px-4 py-2.5 text-sm font-bold text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className="btn-mc inline-flex shrink-0 items-center gap-2 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
+            <Home size={16} />
             Katalog gry
           </button>
         </div>
@@ -690,27 +850,29 @@ function ModsListPanel() {
       ) : null}
 
       {loading && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="flex items-center gap-2 font-pixel text-base text-muted-foreground">
           <Loader2 className="animate-spin" size={18} />
-          Ładowanie listy z serwera…
+          Ladowanie listy z serwera...
         </div>
       )}
       {err && (
-        <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div className="border border-destructive/40 bg-destructive/10 px-4 py-3 font-pixel text-base text-destructive">
           {err}
         </div>
       )}
 
       {info?.mock && (
-        <p className="text-sm text-muted-foreground">Podgląd w przeglądarce — pełna lista w zbudowanej aplikacji.</p>
+        <p className="font-pixel text-base text-muted-foreground">
+          Podglad w przegladarce - pelna lista w zbudowanej aplikacji.
+        </p>
       )}
 
       {!loading && !err && info?.mods?.length === 0 && !info?.mock && (
-        <p className="text-muted-foreground">Brak pozycji na liście.</p>
+        <p className="font-pixel text-base text-muted-foreground">Brak pozycji na liscie.</p>
       )}
 
       {!loading && info?.mods && info.mods.length > 0 && (
-        <div className="glass-card overflow-hidden rounded-2xl border border-brass-dim/20">
+        <div className="glass-card overflow-hidden border border-brass-dim/20">
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 border-b border-glass-border bg-card/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             <span>Plik</span>
             <span className="text-right">Rozmiar</span>
@@ -740,7 +902,7 @@ function ModsListPanel() {
             ))}
           </ul>
           <div className="border-t border-glass-border bg-card/30 px-4 py-2 text-center text-[11px] text-muted-foreground">
-            {info.count} plików
+            {info.count} plikow
             {info.baseUrl ? (
               <>
                 {' '}
@@ -839,7 +1001,7 @@ function LoginScreen({ onProfileLogin }) {
       const msg =
         typeof err === 'string'
           ? err
-          : err?.message || err?.toString?.() || 'Logowanie Microsoft nie powiodło się.';
+          : err?.message || err?.toString?.() || 'Logowanie Microsoft nie powiodlo sie.';
       setLoginError(msg);
     } finally {
       setLoading(false);
@@ -875,24 +1037,25 @@ function LoginScreen({ onProfileLogin }) {
     <div className="absolute inset-0 z-40 flex items-center justify-center p-4 pt-12">
       <div className="absolute inset-0 z-0">
         <img
-          src={pub('hero-bg-ObJtS6DH.jpg')}
+          src={pub('hero-mc.jpg')}
           alt=""
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover pixelated opacity-60 img-crisp"
+          width={1920}
+          height={1080}
         />
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-[1px]" />
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-background/70" />
+        <div className="absolute inset-0 bg-gradient-to-r from-background via-background/85 to-background/30" />
+        <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-transparent to-background" />
+        <div className="absolute inset-0 bg-grid opacity-30" />
       </div>
-      <GearDecoration size={140} className="pointer-events-none absolute right-[5%] top-[18%] z-[1] opacity-20" />
-      <GearDecoration size={100} className="pointer-events-none absolute bottom-[12%] left-[8%] z-[1] opacity-15" reverse />
 
-      <div className="glass-card relative z-10 flex w-full max-w-md flex-col items-center rounded-3xl border border-brass-dim/25 p-8 shadow-2xl">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-glass-border bg-card/80 shadow-inner transition-all hover:border-primary/40">
-          <Key size={28} className="text-primary transition-transform group-hover:scale-110" />
+      <div className="glass-card relative z-10 flex w-full max-w-md flex-col items-center border border-brass-dim/25 p-8 shadow-2xl">
+        <div className="mb-6 flex h-16 w-16 items-center justify-center border border-glass-border bg-card/80 shadow-inner transition-all hover:border-primary/40">
+          <Key size={28} className="text-primary transition-transform group-hover:scale-110 img-crisp" />
         </div>
 
-        <h2 className="mb-2 text-3xl font-black tracking-tight text-foreground">AUTORYZACJA</h2>
-        <p className="mb-6 px-4 text-center text-sm text-muted-foreground">
-          Wybierz zapisaną sesję albo dodaj nowe konto.
+        <h2 className="mb-2 font-mc text-sm tracking-tight text-foreground">AUTORYZACJA</h2>
+        <p className="mb-6 px-4 text-center text-base text-muted-foreground">
+          Wybierz zapisane sesje albo dodaj nowe konto.
         </p>
 
         {loginError && (
@@ -928,7 +1091,7 @@ function LoginScreen({ onProfileLogin }) {
                     onClick={(ev) => removeStoredProfile(ev, p.id)}
                     onKeyDown={(ev) => ev.key === 'Enter' && removeStoredProfile(ev, p.id)}
                     className="rounded-lg p-2 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/15 hover:text-destructive group-hover/row:opacity-100"
-                    title="Usuń sesję"
+                    title="Usun sesje"
                   >
                     <Trash2 size={16} />
                   </span>
@@ -985,7 +1148,7 @@ function LoginScreen({ onProfileLogin }) {
                   type="text"
                   value={offlineNick}
                   onChange={(e) => setOfflineNick(e.target.value)}
-                  placeholder="TWÓJ NICK"
+                  placeholder="TWOJ NICK"
                   className="w-full rounded-xl border border-glass-border bg-background/90 py-3.5 pl-11 pr-4 font-medium text-foreground transition-all placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   autoFocus
                 />
@@ -997,7 +1160,7 @@ function LoginScreen({ onProfileLogin }) {
                 onClick={() => setMode('select')}
                 className="rounded-xl border border-glass-border bg-muted/50 px-5 py-3.5 font-bold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                Powrót
+                Powrot
               </button>
               <button
                 type="submit"
@@ -1009,7 +1172,7 @@ function LoginScreen({ onProfileLogin }) {
                 ) : (
                   <Play size={18} className="fill-current transition-transform group-hover:scale-110" />
                 )}
-                <span>Zapisz i wejdź</span>
+                <span>Zapisz i wejdz</span>
               </button>
             </div>
           </form>
@@ -1023,33 +1186,38 @@ function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="relative z-50 flex h-8 select-none items-center justify-between border-b border-brass-dim/30 bg-background/95 pl-4 pr-2 backdrop-blur-md"
+      className="relative z-50 flex h-8 select-none items-center justify-between border-b border-stone-light/30 bg-background pl-3 pr-1"
     >
       <div className="flex items-center gap-2 text-xs font-semibold tracking-wider text-muted-foreground" data-tauri-drag-region>
-        <img src={pub('logomain.png')} alt="" className="h-5 w-5 shrink-0 object-contain" width={20} height={20} />
-        <span>CREATECRAFTS LAUNCHER</span>
+        <span className="inline-flex h-5 w-5 shrink-0 overflow-hidden border border-stone-light/40 bg-card">
+          <img src={pub('icon.png')} alt="" className="h-full w-full object-cover img-crisp" width={20} height={20} />
+        </span>
+        <span className="font-mc text-[7px] tracking-wide text-foreground/90">CREATECRAFTS</span>
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0">
         <button
           type="button"
           onClick={() => window.launcher?.minimize()}
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-none border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Minimalizuj"
         >
-          <Minus size={14} />
+          <Minus size={14} strokeWidth={2.25} />
         </button>
         <button
           type="button"
           onClick={() => window.launcher?.maximize()}
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-none border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Maksymalizuj"
         >
-          <Square size={12} />
+          <Square size={12} strokeWidth={2.25} />
         </button>
         <button
           type="button"
           onClick={() => window.launcher?.close()}
-          className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-none border border-transparent text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+          aria-label="Zamknij"
         >
-          <X size={14} />
+          <X size={14} strokeWidth={2.25} />
         </button>
       </div>
     </div>
@@ -1059,15 +1227,23 @@ function TitleBar() {
 function IntroAnimation() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
-      <div className="mb-10 flex items-center gap-4">
-        <Globe size={56} className="animate-[pulse_2s_ease-in-out_infinite] text-primary" />
-        <div className="flex flex-col">
-          <span className="text-4xl font-black leading-none tracking-widest text-foreground">CREATE</span>
-          <span className="text-xl font-black tracking-[0.25em] text-gradient-emerald">CRAFT</span>
+      <div className="mb-10 flex flex-col items-center gap-6">
+        <span className="inline-flex h-24 w-24 overflow-hidden border border-stone-light/35 bg-card shadow-md">
+          <img
+            src={pub('icon.png')}
+            alt=""
+            width={96}
+            height={96}
+            className="h-full w-full object-cover img-crisp"
+          />
+        </span>
+        <div className="flex flex-col items-center text-center">
+          <span className="font-mc text-sm tracking-widest text-foreground">CREATE</span>
+          <span className="font-mc text-xs tracking-[0.25em] text-brass-light">CRAFT</span>
         </div>
       </div>
-      <div className="h-1.5 w-64 overflow-hidden rounded-full border border-glass-border bg-muted">
-        <div className="h-full w-0 animate-[loadingBar_1.2s_ease-in-out_forwards] bg-primary shadow-[0_0_10px_hsl(142_69%_58%_/_0.5)]" />
+      <div className="h-2 w-64 overflow-hidden border border-glass-border bg-muted">
+        <div className="h-full w-0 animate-[loadingBar_1.2s_ease-in-out_forwards] bg-primary glow-emerald" />
       </div>
       <style>{`
         @keyframes loadingBar {

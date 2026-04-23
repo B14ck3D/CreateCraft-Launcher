@@ -1,13 +1,8 @@
 #!/usr/bin/env node
-/**
- * Wraps `tauri build` so nested AppImage tools (linuxdeploy) work without FUSE
- * on typical Arch/dev setups — same pattern as CI / headless builds.
- */
 const { spawnSync } = require('node:child_process');
 
 if (process.platform === 'linux') {
   process.env.APPIMAGE_EXTRACT_AND_RUN = '1';
-  // linuxdeploy ships an older strip that breaks on Arch/modern ELF (.relr.dyn).
   process.env.NO_STRIP = '1';
 }
 

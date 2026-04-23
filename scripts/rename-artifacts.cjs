@@ -3,7 +3,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const bundleDir = path.join(root, 'src-tauri', 'target', 'release', 'bundle');
+
+function parseTargetTriple() {
+  const i = process.argv.indexOf('--target');
+  if (i !== -1 && process.argv[i + 1]) return process.argv[i + 1].trim();
+  const prefixed = process.argv.find((a) => a.startsWith('--target='));
+  if (prefixed) return prefixed.slice('--target='.length).trim();
+  return '';
+}
+
+const targetTriple = parseTargetTriple();
+const bundleDir = targetTriple
+  ? path.join(root, 'src-tauri', 'target', targetTriple, 'release', 'bundle')
+  : path.join(root, 'src-tauri', 'target', 'release', 'bundle');
 
 function firstFile(dir, predicate) {
   if (!fs.existsSync(dir)) return null;

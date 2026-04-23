@@ -43,6 +43,11 @@ window.launcher = {
     invoke('open_path_in_explorer', { dirPath }),
   openExternalUrl: (url) => invoke('open_external_url', { url }),
 
+  getAppVersion: () => invoke('get_app_version'),
+  checkLauncherUpdate: () => invoke('check_launcher_update'),
+  downloadAndInstallLauncherUpdate: (downloadUrl, expectedSha256Hex) =>
+    invoke('download_and_install_launcher_update', { downloadUrl, expectedSha256Hex }),
+
   minimize: () => win.minimize(),
   maximize: () =>
     win.isMaximized().then((maximized) => {

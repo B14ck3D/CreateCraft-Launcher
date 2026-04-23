@@ -21,13 +21,30 @@ pub fn run() {
             commands::mods::force_mod_resync_pending,
             commands::shell::open_path_in_explorer,
             commands::shell::open_external_url,
+            commands::update::get_app_version,
+            commands::update::check_launcher_update,
+            commands::update::download_and_install_launcher_update,
         ])
-        .setup(|_app| {
+        .setup(|app| {
             #[cfg(debug_assertions)]
             {
                 use tauri::Manager;
-                if let Some(w) = _app.get_webview_window("main") {
+                if let Some(w) = app.get_webview_window("main") {
                     w.open_devtools();
+                }
+            }
+            {
+                use tauri::image::Image;
+                use tauri::Manager;
+                const ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+                if let Ok(dyn_img) = image::load_from_memory(ICON_PNG) {
+                    let rgba_img = dyn_img.to_rgba8();
+                    let (w, h) = rgba_img.dimensions();
+                    let rgba = rgba_img.into_raw();
+                    let icon = Image::new_owned(rgba, w, h);
+                    if let Some(win) = app.get_webview_window("main") {
+                        let _ = win.set_icon(icon);
+                    }
                 }
             }
             Ok(())

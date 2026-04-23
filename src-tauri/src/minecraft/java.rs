@@ -25,16 +25,19 @@ pub struct JavaRuntime {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct AdoptiumAsset {
     binary: AdoptiumBinary,
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct AdoptiumBinary {
     package: AdoptiumPackage,
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct AdoptiumPackage {
     link: String,
 }

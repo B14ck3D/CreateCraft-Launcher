@@ -158,7 +158,12 @@ pub async fn download_and_install_launcher_update(
         return Err("Expected SHA-256 must be 64 hex characters.".to_string());
     }
 
-    let ext = if url.to_lowercase().contains(".exe") {
+    // Panel zwraca czesto URL bez ".exe" w sciezce (np. /api/public/launcher/download) — i tak serwuje .exe.
+    let url_l = url.to_lowercase();
+    let ext = if url_l.contains(".exe")
+        || url_l.contains("launcher/download")
+        || url_l.ends_with("/download")
+    {
         ".exe"
     } else {
         ".bin"

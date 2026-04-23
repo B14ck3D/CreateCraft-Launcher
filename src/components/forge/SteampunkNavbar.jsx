@@ -1,6 +1,8 @@
 import { useState } from 'react';
-import { Settings, Menu, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const pub = (file) => `${import.meta.env.BASE_URL}${file}`;
 
 const defaultNav = [
   { id: 'home', label: 'GŁÓWNA' },
@@ -12,22 +14,26 @@ export default function SteampunkNavbar({ activeTab, onSelectTab, navItems = def
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <nav className="fixed left-0 right-0 top-8 z-40 border-b border-brass-dim/20 bg-background/60 backdrop-blur-xl">
+    <nav className="fixed left-0 right-0 top-8 z-40 border-b border-stone-light/40 bg-background/90 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 lg:px-8">
         <button
           type="button"
           onClick={() => onSelectTab?.('home')}
-          className="group flex shrink-0 items-center gap-2"
+          className="group flex min-w-0 shrink-0 items-center gap-3"
         >
-          <motion.div animate={{ rotate: 360 }} transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}>
-            <Settings size={22} className="text-brass-light" />
-          </motion.div>
-          <span className="text-base font-black tracking-wider text-foreground">
+          <img
+            src={pub('mainlogo.png')}
+            alt=""
+            width={40}
+            height={40}
+            className="h-9 w-9 shrink-0 object-contain img-crisp"
+          />
+          <span className="font-mc text-[10px] leading-tight tracking-wide text-foreground sm:text-[11px]">
             CREATE <span className="text-primary">CRAFT</span>
           </span>
         </button>
 
-        <div className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-6 md:flex">
+        <div className="absolute left-1/2 hidden max-w-[50%] -translate-x-1/2 items-center gap-5 md:flex">
           {navItems.map((item) => (
             <button
               key={item.id}
@@ -36,7 +42,7 @@ export default function SteampunkNavbar({ activeTab, onSelectTab, navItems = def
                 onSelectTab?.(item.id);
                 setMobileOpen(false);
               }}
-              className={`text-xs font-semibold tracking-[0.15em] transition-colors ${
+              className={`shrink-0 font-mc text-[8px] tracking-widest transition-colors ${
                 activeTab === item.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -63,7 +69,7 @@ export default function SteampunkNavbar({ activeTab, onSelectTab, navItems = def
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden border-b border-glass-border bg-background/95 backdrop-blur-xl md:hidden"
+            className="overflow-hidden border-b border-stone-light/40 bg-background/95 backdrop-blur-md md:hidden"
           >
             <div className="flex flex-col gap-3 px-6 py-4">
               {navItems.map((item) => (
@@ -74,7 +80,7 @@ export default function SteampunkNavbar({ activeTab, onSelectTab, navItems = def
                     onSelectTab?.(item.id);
                     setMobileOpen(false);
                   }}
-                  className={`text-left text-sm font-semibold tracking-widest transition-colors ${
+                  className={`text-left font-mc text-[9px] tracking-widest transition-colors ${
                     activeTab === item.id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >

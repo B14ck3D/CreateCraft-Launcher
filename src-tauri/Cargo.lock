@@ -665,6 +665,7 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "scrypt",
+ "semver",
  "serde",
  "serde_json",
  "sha1",

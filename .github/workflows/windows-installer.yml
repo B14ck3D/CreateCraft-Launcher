@@ -1,0 +1,26 @@
+name: Windows NSIS installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  nsis:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run prep:brand
+      - run: npm run build:vite
+      - run: npx tauri build --bundles nsis
+      - run: node scripts/rename-artifacts.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CreateCrafts-installer
+          path: src-tauri/target/release/bundle/nsis/CreateCrafts-installer.exe

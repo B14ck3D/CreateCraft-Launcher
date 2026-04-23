@@ -21,6 +21,9 @@ pub fn run() {
             commands::mods::force_mod_resync_pending,
             commands::shell::open_path_in_explorer,
             commands::shell::open_external_url,
+            commands::update::get_app_version,
+            commands::update::check_launcher_update,
+            commands::update::download_and_install_launcher_update,
         ])
         .setup(|_app| {
             #[cfg(debug_assertions)]

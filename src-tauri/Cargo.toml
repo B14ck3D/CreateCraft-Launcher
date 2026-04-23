@@ -54,6 +54,7 @@ num_cpus  = "1"
 os_info   = "3"
 dirs      = "5"
 regex     = "1"
+semver    = "1"
 tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

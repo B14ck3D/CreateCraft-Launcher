@@ -9,7 +9,6 @@ pub async fn open_path_in_explorer(
     if p.is_empty() {
         return Ok(serde_json::json!({ "ok": false, "error": "Brak ścieżki" }));
     }
-    // Ensure directory exists
     let _ = std::fs::create_dir_all(&p);
 
     app.opener()

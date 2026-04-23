@@ -188,12 +188,25 @@ export default function App() {
     const h = launcherUpdate?.expectedSha256;
     if (!u || !h) return;
     setLauncherUpdateDownloading(true);
+    setLauncherUpdate((prev) => ({
+      ...(prev || {}),
+      installError: null,
+      manualHint: null,
+    }));
     try {
-      await window.launcher.downloadAndInstallLauncherUpdate(u, h);
+      const r = await window.launcher.downloadAndInstallLauncherUpdate(u, h);
+      if (r && r.manual === true && r.message) {
+        setLauncherUpdate((prev) => ({
+          ...(prev || {}),
+          manualHint: String(r.message),
+          installError: null,
+        }));
+      }
     } catch (e) {
       setLauncherUpdate((prev) => ({
         ...(prev || {}),
         installError: String(e?.message || e),
+        manualHint: null,
       }));
     } finally {
       setLauncherUpdateDownloading(false);
@@ -405,15 +418,15 @@ export default function App() {
     return (
       <div className="flex min-h-screen flex-col overflow-hidden bg-background font-sans text-foreground antialiased selection:bg-primary/25">
         <TitleBar />
+        <div className="relative min-h-0 flex-1">
+          <LoginScreen onProfileLogin={handleProfileLogin} />
+        </div>
         <LauncherUpdateBanner
           loading={launcherUpdateLoading}
           downloading={launcherUpdateDownloading}
           data={launcherUpdate}
           onInstall={runLauncherUpdateInstall}
         />
-        <div className="relative min-h-0 flex-1">
-          <LoginScreen onProfileLogin={handleProfileLogin} />
-        </div>
         <SteampunkFooter appVersion={appVersion} />
       </div>
     );
@@ -454,12 +467,6 @@ export default function App() {
         </div>
       )}
       <TitleBar />
-      <LauncherUpdateBanner
-        loading={launcherUpdateLoading}
-        downloading={launcherUpdateDownloading}
-        data={launcherUpdate}
-        onInstall={runLauncherUpdateInstall}
-      />
       <SteampunkNavbar activeTab={activeTab} onSelectTab={setActiveTab} />
 
       <main className="relative flex-1 overflow-y-auto pt-[calc(2rem+3.5rem)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -639,6 +646,12 @@ export default function App() {
           </div>
         )}
       </main>
+      <LauncherUpdateBanner
+        loading={launcherUpdateLoading}
+        downloading={launcherUpdateDownloading}
+        data={launcherUpdate}
+        onInstall={runLauncherUpdateInstall}
+      />
       <SteampunkFooter appVersion={appVersion} />
     </div>
   );
@@ -649,26 +662,30 @@ function LauncherUpdateBanner({ loading, downloading, data, onInstall }) {
   const avail = data?.updateAvailable && data?.ok;
   const err = data?.ok === false ? data?.error : null;
   const installErr = data?.installError;
+  const manualHint = data?.manualHint;
 
-  if (!loading && !avail && !err && !installErr) return null;
+  if (!loading && !avail && !err && !installErr && !manualHint) return null;
 
   return (
     <div
-      className={`relative z-[45] border-b border-stone-light/40 px-4 py-2 ${
-        avail ? 'bg-primary/15' : 'bg-muted/40'
+      className={`relative z-[35] shrink-0 border-t border-stone-light/40 px-4 py-3 ${
+        avail ? 'bg-primary/12' : manualHint ? 'bg-card/90' : 'bg-muted/40'
       }`}
     >
-      <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between lg:px-8">
-        <div className="min-w-0 font-pixel text-base text-foreground">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+        <div className="min-w-0 space-y-1 font-pixel text-base text-foreground">
           {loading && <span className="text-muted-foreground">Sprawdzanie aktualizacji launchera...</span>}
           {!loading && avail && (
-            <span className="leading-snug">
+            <span className="block leading-snug">
               Dostepna nowa wersja: <strong className="text-primary">{data.remoteVersion}</strong>
               {data.notes ? ` - ${data.notes}` : ''}
             </span>
           )}
-          {!loading && err && <span className="leading-snug text-muted-foreground">{err}</span>}
-          {!loading && installErr && <span className="leading-snug text-destructive">{installErr}</span>}
+          {!loading && err && <span className="block leading-snug text-muted-foreground">{err}</span>}
+          {!loading && installErr && <span className="block leading-snug text-destructive">{installErr}</span>}
+          {!loading && manualHint && (
+            <span className="block leading-snug text-muted-foreground">{manualHint}</span>
+          )}
         </div>
         {avail && !loading && (
           <button

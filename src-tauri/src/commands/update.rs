@@ -2,6 +2,8 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 #[cfg(target_os = "windows")]
+use std::path::Path;
+#[cfg(target_os = "windows")]
 use std::process::Command;
 #[cfg(not(target_os = "windows"))]
 use std::path::PathBuf;
@@ -32,6 +34,23 @@ struct LauncherMetaResponse {
     url: String,
     #[serde(default)]
     notes: String,
+}
+
+#[cfg(target_os = "windows")]
+fn exe_looks_like_nsis_installer(path: &Path) -> bool {
+    use std::fs::File;
+    use std::io::Read;
+    let Ok(mut file) = File::open(path) else {
+        return false;
+    };
+    let mut buf = vec![0u8; 5 * 1024 * 1024];
+    let Ok(n) = file.read(&mut buf) else {
+        return false;
+    };
+    let chunk = &buf[..n];
+    let lower: Vec<u8> = chunk.iter().map(|b| b.to_ascii_lowercase()).collect();
+    lower.windows(9).any(|w| w == b"nullsoft")
+        || lower.windows(4).any(|w| w == b"nsis")
 }
 
 fn resolve_download_url(base: &str, url: &str) -> String {
@@ -69,7 +88,7 @@ pub async fn check_launcher_update(app: tauri::AppHandle) -> Result<serde_json::
             "ok": false,
             "currentVersion": current,
             "updateAvailable": false,
-            "error": format!("HTTP {} — {}", status, body.chars().take(240).collect::<String>()),
+            "error": format!("HTTP {} - {}", status, body.chars().take(240).collect::<String>()),
         }));
     }
 
@@ -162,14 +181,29 @@ pub async fn download_and_install_launcher_update(
     #[cfg(target_os = "windows")]
     {
         if ext != ".exe" {
-            return Err("Windows update requires an .exe (NSIS) installer.".to_string());
+            return Err("Windows: wymagany plik .exe (instalator).".to_string());
         }
-        Command::new(&out_path)
-            .arg("/S")
-            .spawn()
-            .map_err(|e| format!("Failed to run installer: {e}"))?;
-        std::thread::sleep(std::time::Duration::from_millis(600));
-        std::process::exit(0);
+        let path = out_path.as_path();
+        if exe_looks_like_nsis_installer(path) {
+            Command::new(path)
+                .arg("/S")
+                .spawn()
+                .map_err(|e| format!("Nie udalo sie uruchomic instalatora: {e}"))?;
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            std::process::exit(0);
+        }
+
+        let display = path.display().to_string();
+        let select_arg = format!("/select,{}", display);
+        let _ = Command::new("explorer.exe").arg(select_arg).spawn();
+
+        return Ok(serde_json::json!({
+            "ok": true,
+            "ranInstaller": false,
+            "manual": true,
+            "savedPath": display,
+            "message": "Pobrano plik aktualizacji, ale nie wyglada jak instalator NSIS (brak znacznika Nullsoft). Otworzono folder - uruchom plik recznie albo pobierz oficjalny instalator NSIS z createcrafts.pl (build Windows)."
+        }));
     }
 
     #[cfg(not(target_os = "windows"))]

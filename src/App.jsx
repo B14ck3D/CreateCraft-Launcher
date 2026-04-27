@@ -30,13 +30,16 @@ const PROFILES_LEGACY_KEY = 'supersmp_profiles_v1';
 const LAST_PROFILE_LEGACY_KEY = 'supersmp_last_profile_id';
 const LAUNCHER_SETTINGS_KEY = 'createcraft_launcher_settings_v1';
 
-const ADOPTIUM_JDK21_URL =
-  'https://adoptium.net/temurin/releases/?package=jdk&version=21';
-
 function clampRamGb(n) {
   const x = typeof n === 'number' ? n : parseInt(String(n), 10);
   if (!Number.isFinite(x)) return 6;
   return Math.min(32, Math.max(2, Math.round(x)));
+}
+
+function clampGcConcThreads(n) {
+  const x = typeof n === 'number' ? n : parseInt(String(n), 10);
+  if (!Number.isFinite(x)) return 4;
+  return Math.min(16, Math.max(1, Math.round(x)));
 }
 
 function normalizeLauncherUpdateError(raw) {
@@ -64,11 +67,15 @@ function launcherUpdateDockVisible(loading, data) {
 function loadLauncherSettings() {
   try {
     const raw = localStorage.getItem(LAUNCHER_SETTINGS_KEY);
-    if (!raw) return { ramGb: 6 };
+    if (!raw) return { ramGb: 6, gcConcThreads: 4, zgcJvmProfile: false };
     const o = JSON.parse(raw);
-    return { ramGb: clampRamGb(o.ramGb ?? 6) };
+    return {
+      ramGb: clampRamGb(o.ramGb ?? 6),
+      gcConcThreads: clampGcConcThreads(o.gcConcThreads ?? 4),
+      zgcJvmProfile: Boolean(o.zgcJvmProfile),
+    };
   } catch {
-    return { ramGb: 6 };
+    return { ramGb: 6, gcConcThreads: 4, zgcJvmProfile: false };
   }
 }
 
@@ -78,6 +85,9 @@ function saveLauncherSettings(partial) {
     ...cur,
     ...partial,
     ramGb: clampRamGb(partial.ramGb ?? cur.ramGb),
+    gcConcThreads: clampGcConcThreads(partial.gcConcThreads ?? cur.gcConcThreads),
+    zgcJvmProfile:
+      typeof partial.zgcJvmProfile === 'boolean' ? partial.zgcJvmProfile : cur.zgcJvmProfile,
   };
   localStorage.setItem(LAUNCHER_SETTINGS_KEY, JSON.stringify(next));
 }
@@ -124,6 +134,8 @@ export default function App() {
   const [connectionState, setConnectionState] = useState('idle');
   const [progress, setProgress] = useState(0);
   const [ramSize, setRamSize] = useState(() => loadLauncherSettings().ramGb);
+  const [gcConcThreads, setGcConcThreads] = useState(() => loadLauncherSettings().gcConcThreads);
+  const [zgcJvmProfile, setZgcJvmProfile] = useState(() => loadLauncherSettings().zgcJvmProfile);
   const [launchError, setLaunchError] = useState(null);
   const [forceModResyncPending, setForceModResyncPending] = useState(false);
   const [forceModResyncNotice, setForceModResyncNotice] = useState(null);
@@ -202,6 +214,17 @@ export default function App() {
     const v = clampRamGb(value);
     setRamSize(v);
     saveLauncherSettings({ ramGb: v });
+  }, []);
+
+  const updateGcConcThreads = useCallback((value) => {
+    const v = clampGcConcThreads(value);
+    setGcConcThreads(v);
+    saveLauncherSettings({ gcConcThreads: v });
+  }, []);
+
+  const updateZgcJvmProfile = useCallback((enabled) => {
+    setZgcJvmProfile(enabled);
+    saveLauncherSettings({ zgcJvmProfile: enabled });
   }, []);
 
   const runLauncherUpdateInstall = useCallback(async () => {
@@ -330,12 +353,6 @@ export default function App() {
     };
   }, []);
 
-  const openAdoptiumJdkPage = useCallback(() => {
-    if (window.launcher?.openExternalUrl) {
-      void window.launcher.openExternalUrl(ADOPTIUM_JDK21_URL);
-    }
-  }, []);
-
   const handleConnectClick = () => {
     setLaunchError(null);
     if (window.launcher) {
@@ -344,12 +361,16 @@ export default function App() {
           type: 'offline',
           offlineName: user.name,
           ramSize: `${ramSize}G`,
+          zgcJvmProfile,
+          gcConcThreads,
         });
       } else {
         window.launcher.startGame({
           type: 'premium',
           profileId: user.id,
           ramSize: `${ramSize}G`,
+          zgcJvmProfile,
+          gcConcThreads,
         });
       }
     } else {
@@ -409,7 +430,7 @@ export default function App() {
       case 'checking-files':
         return 'Sprawdzanie plikow modpacku (serwer CreateCrafts)...';
       case 'checking-java':
-        return 'Sprawdzanie Java (wymagane JDK 21)...';
+        return 'Przygotowanie...';
       case 'mods-sync':
         return `Pobieranie / aktualizacja modow (NeoForge ${gamePack.neoForgeInstallerVersion})...`;
       case 'downloading':
@@ -475,15 +496,6 @@ export default function App() {
             <pre className="select-text mb-4 max-h-64 overflow-y-auto whitespace-pre-wrap break-words border border-glass-border bg-background/80 p-3 font-mono text-xs text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {launchError}
             </pre>
-            {launchError && /JDK|Java|java/.test(launchError) && window.launcher?.openExternalUrl && (
-              <button
-                type="button"
-                onClick={() => openAdoptiumJdkPage()}
-                className="btn-mc mb-3 w-full"
-              >
-                Pobierz JDK 21 (Temurin)
-              </button>
-            )}
             <button
               type="button"
               onClick={() => {
@@ -550,23 +562,6 @@ export default function App() {
             <CogwheelFrame>
               <div className="divide-y divide-glass-border/70">
                 <section className="px-5 py-6 sm:px-7 sm:py-7">
-                  <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Java</p>
-                  <p className="mb-3 font-pixel text-base leading-relaxed text-muted-foreground">
-                    Wymagane JDK 21 - launcher uzywa Javy ze srodowiska (np. PATH, JAVA_HOME).
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {window.launcher?.openExternalUrl && (
-                      <button
-                        type="button"
-                        onClick={() => openAdoptiumJdkPage()}
-                        className="btn-mc"
-                      >
-                        Pobierz JDK 21 (Temurin)
-                      </button>
-                    )}
-                  </div>
-                </section>
-                <section className="px-5 py-6 sm:px-7 sm:py-7">
                   <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
                     Wydajnosc
                   </p>
@@ -578,7 +573,7 @@ export default function App() {
                       <div className="min-w-0">
                         <h3 className="font-pixel text-lg font-bold text-foreground">Pamiec RAM (heap)</h3>
                         <p className="mt-1 font-pixel text-base leading-relaxed text-muted-foreground">
-                          Przydzial dla JVM Minecrafta. Wiekszy modpack zwykle 6-12 GB. Wartosc jest zapisywana od razu.
+                          Przydzial pamieci RAM dla gry. Wiekszy modpack zwykle 6-12 GB. Wartosc jest zapisywana od razu.
                         </p>
                       </div>
                     </div>
@@ -613,6 +608,69 @@ export default function App() {
                     <span className="font-semibold text-foreground">{ramSize} GB</span> - uzywane przy nastepnym
                     uruchomieniu gry.
                   </p>
+
+                  <div className="mt-8 border-t border-glass-border/70 pt-8">
+                    <label className="flex cursor-pointer items-start gap-3 sm:items-center">
+                      <input
+                        type="checkbox"
+                        checked={zgcJvmProfile}
+                        onChange={(e) => updateZgcJvmProfile(e.target.checked)}
+                        className="mt-1 h-5 w-5 shrink-0 accent-primary sm:mt-0"
+                      />
+                      <div className="min-w-0">
+                        <h3 className="font-pixel text-lg font-bold text-foreground">Dodatkowy profil JVM (ZGC)</h3>
+                        <p className="mt-1 font-pixel text-base leading-relaxed text-muted-foreground">
+                          Opcjonalne flagi garbage collectora i watki ConcGC. Wylaczone = tylko argumenty z paczki
+                          gry.
+                        </p>
+                      </div>
+                    </label>
+                    <div
+                      className={`mt-6 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between ${!zgcJvmProfile ? 'pointer-events-none opacity-40' : ''}`}
+                    >
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center border border-glass-border bg-primary/10 text-primary">
+                          <Cpu size={22} strokeWidth={2} />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-pixel text-lg font-bold text-foreground">ConcGCThreads</h3>
+                          <p className="mt-1 font-pixel text-base leading-relaxed text-muted-foreground">
+                            Wiecej watkow moze przyspieszyc zbieranie na mocniejszym CPU (1-16). Domyslnie 4.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2 self-start border border-glass-border bg-card/50 px-4 py-2.5 sm:self-center">
+                        <input
+                          type="number"
+                          min={1}
+                          max={16}
+                          value={gcConcThreads}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const n = parseInt(raw, 10);
+                            if (raw === '' || Number.isNaN(n)) return;
+                            updateGcConcThreads(n);
+                          }}
+                          onBlur={() => updateGcConcThreads(gcConcThreads)}
+                          className="w-14 bg-transparent text-center text-xl font-black tabular-nums text-primary focus:outline-none focus:ring-0"
+                        />
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={16}
+                      step={1}
+                      value={gcConcThreads}
+                      onChange={(e) => updateGcConcThreads(parseInt(e.target.value, 10))}
+                      disabled={!zgcJvmProfile}
+                      className={`settings-range-slider mt-5 h-3 w-full ${zgcJvmProfile ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}
+                    />
+                    <p className="mt-3 font-pixel text-sm text-muted-foreground">
+                      <span className="font-semibold text-foreground">{gcConcThreads}</span>
+                      {zgcJvmProfile ? ' — przy nastepnym starcie gry.' : ' — uzywane tylko gdy profil ZGC jest wlaczony.'}
+                    </p>
+                  </div>
                 </section>
 
                 <section className="flex flex-col gap-5 px-5 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-7 sm:py-7">

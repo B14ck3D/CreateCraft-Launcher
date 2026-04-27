@@ -2,7 +2,7 @@ use tauri::Emitter;
 use crate::commands::auth::ensure_session_valid;
 use crate::commands::mods::sync_mods;
 use crate::minecraft::assets::{build_mc_client, download_minecraft_files, fetch_version_json, resolve_full_version};
-use crate::minecraft::java::resolve_java21_runtime;
+use crate::minecraft::java::{resolve_bundled_java21, REQUIRED_JAVA_MAJOR};
 use crate::minecraft::launcher::{build_launch_args, spawn_game, AuthInfo, LaunchConfig};
 use crate::minecraft::neoforge::{ensure_neoforge, neoforge_version_json_path, resolve_neoforge_version, MC_VERSION};
 use crate::session::store::load_session;
@@ -18,6 +18,12 @@ pub struct StartGamePayload {
     pub offline_name: Option<String>,
     pub profile_id: Option<String>,
     pub ram_size: Option<String>,
+    pub zgc_jvm_profile: Option<bool>,
+    pub gc_conc_threads: Option<u32>,
+}
+
+fn sanitize_gc_conc_threads(raw: Option<u32>) -> u32 {
+    raw.unwrap_or(4).clamp(1, 16)
 }
 
 fn sanitize_ram_size(raw: Option<String>) -> String {
@@ -174,15 +180,13 @@ pub async fn start_game(
     };
 
     emit_state(&app, "checking-java");
-    let java_runtime = match resolve_java21_runtime(&game_root).await {
-        Ok(rt) => rt,
+    let (java_path, java_exec_path) = match resolve_bundled_java21(&app) {
+        Ok(rt) => (rt.javaw_path.clone(), rt.java_path.clone()),
         Err(e) => crash_and_return!(format!(
-            "Nie udało się przygotować Java 21 runtime: {e}\n\nPełny log: {}",
+            "Nie udało się zlokalizować zbundlowanej Java 21: {e}\n\nPełny log: {}",
             log_path.display()
         )),
     };
-    let java_path = java_runtime.javaw_path.clone();
-    let java_exec_path = java_runtime.java_path.clone();
     emit_progress(&app, 4);
 
     let use_modpack = std::env::var("CREATECRAFT_DISABLE_MODPACK").as_deref() != Ok("1")
@@ -309,12 +313,16 @@ pub async fn start_game(
         .unwrap_or_else(|_| "25565".to_string());
 
     let ram_size = sanitize_ram_size(payload.ram_size);
+    let zgc_jvm_profile = payload.zgc_jvm_profile.unwrap_or(false);
+    let gc_conc_threads = sanitize_gc_conc_threads(payload.gc_conc_threads);
 
     let launch_config = LaunchConfig {
         java_path: java_path.clone(),
         game_root: game_root.clone(),
         auth: auth.clone(),
         ram_max: ram_size.clone(),
+        zgc_jvm_profile,
+        gc_conc_threads,
         neoforge_version: if use_modpack {
             resolve_neoforge_version()
         } else {
@@ -338,13 +346,17 @@ pub async fn start_game(
         server_port
     ));
     log!(&format!(
-        "Java runtime: major={} source={:?} java={} javaw={}",
-        java_runtime.major,
-        java_runtime.source,
+        "Java (zbundlowana {}): java={} javaw={}",
+        REQUIRED_JAVA_MAJOR,
         java_exec_path.display(),
         java_path.display()
     ));
     log!(&format!("Konfiguracja RAM: {}", ram_size));
+    if zgc_jvm_profile {
+        log!(&format!("Profil JVM ZGC: wlaczony, ConcGCThreads={gc_conc_threads}"));
+    } else {
+        log!("Profil JVM ZGC: wylaczony");
+    }
 
     emit_state(&app, "launching");
 

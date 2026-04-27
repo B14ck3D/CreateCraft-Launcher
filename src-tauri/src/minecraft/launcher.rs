@@ -91,19 +91,15 @@ fn offline_player_uuid(player_name: &str) -> String {
     )
 }
 
-// JVM performance / OS args (mirrors buildMclcJvmAugments in main.js)
-
-fn jvm_performance_args() -> Vec<String> {
-    let cpus = num_cpus::get();
+fn jvm_gc_zgc_args(conc_gc_threads: u32) -> Vec<String> {
+    let t = conc_gc_threads.clamp(1, 16);
     vec![
-        "-XX:+UseG1GC".to_string(),
-        "-XX:+ParallelRefProcEnabled".to_string(),
-        "-XX:MaxGCPauseMillis=200".to_string(),
-        format!(
-            "-XX:ConcGCThreads={}",
-            (cpus / 2).max(2).min(8)
-        ),
-        format!("-XX:ParallelGCThreads={cpus}"),
+        "-XX:+UseZGC".to_string(),
+        "-XX:+UnlockExperimentalVMOptions".to_string(),
+        "-XX:+ZGenerational".to_string(),
+        "-XX:+AlwaysPreTouch".to_string(),
+        "-XX:+DisableExplicitGC".to_string(),
+        format!("-XX:ConcGCThreads={t}"),
     ]
 }
 
@@ -332,6 +328,8 @@ pub struct LaunchConfig {
     pub game_root: PathBuf,
     pub auth: AuthInfo,
     pub ram_max: String,
+    pub zgc_jvm_profile: bool,
+    pub gc_conc_threads: u32,
     pub neoforge_version: String,
     pub server_host: String,
     pub server_port: String,
@@ -393,8 +391,6 @@ pub async fn build_launch_args(
     args.push(format!("-Xmx{}M", xmx_mb));
     args.push(format!("-Xms{}M", xms_mb));
 
-    // Performance + OS args
-    args.extend(jvm_performance_args());
     args.extend(windows_os_spoof_args());
 
     // Branding
@@ -419,6 +415,10 @@ pub async fn build_launch_args(
         ));
         args.push("-cp".to_string());
         args.push(classpath.clone());
+    }
+
+    if config.zgc_jvm_profile {
+        args.extend(jvm_gc_zgc_args(config.gc_conc_threads));
     }
 
     // Main class

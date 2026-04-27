@@ -42,7 +42,8 @@
     ],
     "resources": {
       "../branding/servers.dat": "resources/servers.dat",
-      "../branding/launcher-mods-key.enc": "resources/launcher-mods-key.enc"
+      "../branding/launcher-mods-key.enc": "resources/launcher-mods-key.enc",
+      "jre21": "resources/jre21"
     },
     "windows": {
       "nsis": {

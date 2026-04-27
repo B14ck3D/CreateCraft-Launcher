@@ -2,7 +2,7 @@ use crate::error::{LauncherError, Result};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-pub const NEOFORGE_VERSION_DEFAULT: &str = "21.1.226";
+pub const NEOFORGE_VERSION_DEFAULT: &str = "21.1.228";
 pub const MC_VERSION: &str = "1.21.1";
 
 fn neoforge_installer_url(version: &str) -> String {

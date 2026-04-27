@@ -50,7 +50,6 @@ uuid         = { version = "1",   features = ["v4"] }
 urlencoding  = "2"
 anyhow       = "1"
 thiserror = "1"
-num_cpus  = "1"
 os_info   = "3"
 dirs      = "5"
 regex     = "1"
